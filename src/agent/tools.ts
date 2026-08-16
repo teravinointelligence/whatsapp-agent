@@ -13,6 +13,13 @@ import {
   type OrderItemInput,
 } from "../crm/orders.js";
 import { searchAccounts, type StaffContext } from "../crm/staff.js";
+import {
+  assignProspect,
+  listProspects,
+  ProspectError,
+  registerProspect,
+} from "../crm/prospects.js";
+import { notifyAdminsOfProspect } from "../notify.js";
 
 /**
  * Contexto que el servidor resuelve antes de invocar al agente. La cuenta sale
@@ -24,6 +31,10 @@ export interface ToolContext {
   account: AccountContext;
   /** Cuando quien escribe es del equipo de Teravino, no un cliente. */
   staff: StaffContext | null;
+  /** Teléfono verificado que compartió, o null si aún no lo comparte. */
+  phone: string | null;
+  /** Id de Telegram, para poder volver a contactar al prospecto. */
+  userId: string;
 }
 
 export const tools: Anthropic.Tool[] = [
@@ -156,6 +167,76 @@ export const tools: Anthropic.Tool[] = [
       required: ["nombre"],
     },
   },
+  {
+    name: "registrar_prospecto",
+    description:
+      "Registra en el CRM a un negocio que todavía no es cliente, para que la " +
+      "administración le asigne un vendedor. Úsala cuando alguien no identificado " +
+      "te diga de qué negocio viene y quiera trabajar con nosotros. Pide primero " +
+      "el nombre del negocio; lo demás es opcional. Si vuelve a escribir no se " +
+      "duplica, se actualiza. Sólo funciona con quien ya compartió su teléfono.",
+    input_schema: {
+      type: "object",
+      properties: {
+        negocio: {
+          type: "string",
+          description: "Nombre del hotel, restaurante o bar. Obligatorio.",
+        },
+        contacto: {
+          type: "string",
+          description: "Nombre de la persona con la que hablas.",
+        },
+        ciudad: {
+          type: "string",
+          description: "Ciudad o zona donde opera. Ej. 'Los Cabos', 'La Paz'.",
+        },
+        interes: {
+          type: "string",
+          description:
+            "Qué busca, en sus propias palabras. Ej. 'vinos blancos por copeo para su carta'.",
+        },
+      },
+      required: ["negocio"],
+    },
+  },
+  {
+    name: "consultar_prospectos",
+    description:
+      "SÓLO para la administradora. Lista los prospectos captados, del más " +
+      "reciente al más viejo, con su estatus y el vendedor asignado.",
+    input_schema: {
+      type: "object",
+      properties: {
+        estatus: {
+          type: "string",
+          description:
+            "Filtra por estatus: 'nuevo', 'asignado', 'convertido' o 'descartado'. " +
+            "Omítelo para verlos todos.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "asignar_prospecto",
+    description:
+      "SÓLO para la administradora. Asigna un prospecto a un vendedor por su " +
+      "nombre y lo deja en estatus 'asignado'. Obtén el id con consultar_prospectos.",
+    input_schema: {
+      type: "object",
+      properties: {
+        prospecto_id: {
+          type: "string",
+          description: "Id del prospecto, tal como lo devolvió consultar_prospectos.",
+        },
+        vendedor: {
+          type: "string",
+          description: "Nombre del vendedor. Ej. 'Yamile', 'Citlali'.",
+        },
+      },
+      required: ["prospecto_id", "vendedor"],
+    },
+  },
 ];
 
 export async function runTool(
@@ -164,7 +245,7 @@ export async function runTool(
   context: ToolContext,
 ): Promise<{ content: string; isError: boolean }> {
   const args = (input ?? {}) as Record<string, unknown>;
-  const { account, staff } = context;
+  const { account, staff, phone } = context;
 
   try {
     switch (name) {
@@ -273,11 +354,92 @@ export async function runTool(
         return { content: JSON.stringify(results, null, 2), isError: false };
       }
 
+      case "registrar_prospecto": {
+        if (!phone) {
+          return {
+            content:
+              "Todavía no compartió su teléfono, así que no hay a quién registrar. Pídeselo con el botón.",
+            isError: true,
+          };
+        }
+        if (staff) {
+          return {
+            content: "Eres del equipo de Teravino, no un prospecto.",
+            isError: true,
+          };
+        }
+        if (account.isKnown) {
+          const nombres = account.candidates.map((c) => c.businessName).join(", ");
+          return {
+            content: `Este cliente ya está dado de alta como ${nombres}; no hay que registrarlo como prospecto.`,
+            isError: true,
+          };
+        }
+
+        const { prospect, isNew } = await registerProspect({
+          phone,
+          telegramUserId: context.userId,
+          businessName: String(args.negocio ?? ""),
+          contactName: typeof args.contacto === "string" ? args.contacto : undefined,
+          city: typeof args.ciudad === "string" ? args.ciudad : undefined,
+          interest: typeof args.interes === "string" ? args.interes : undefined,
+        });
+
+        // El aviso a la administración no debe bloquear la respuesta al cliente.
+        void notifyAdminsOfProspect(prospect);
+
+        return {
+          content: JSON.stringify(
+            {
+              registrado: true,
+              nuevo: isNew,
+              negocio: prospect.negocio,
+              estatus: prospect.estatus,
+              nota: isNew
+                ? "Quedó registrado y la administración ya fue avisada."
+                : "Ya estaba registrado; se actualizaron sus datos.",
+            },
+            null,
+            2,
+          ),
+          isError: false,
+        };
+      }
+
+      case "consultar_prospectos": {
+        if (!staff?.isAdmin) {
+          return {
+            content: "Sólo la administración de Teravino puede ver los prospectos.",
+            isError: true,
+          };
+        }
+        const estatus = typeof args.estatus === "string" ? args.estatus.trim() : "";
+        const prospects = await listProspects(estatus || undefined);
+        if (prospects.length === 0) {
+          return { content: "No hay prospectos con ese criterio.", isError: false };
+        }
+        return { content: JSON.stringify(prospects, null, 2), isError: false };
+      }
+
+      case "asignar_prospecto": {
+        if (!staff?.isAdmin) {
+          return {
+            content: "Sólo la administración de Teravino puede asignar prospectos.",
+            isError: true,
+          };
+        }
+        const prospect = await assignProspect(
+          String(args.prospecto_id ?? ""),
+          String(args.vendedor ?? ""),
+        );
+        return { content: JSON.stringify(prospect, null, 2), isError: false };
+      }
+
       default:
         return { content: `Herramienta desconocida: ${name}`, isError: true };
     }
   } catch (error) {
-    if (error instanceof OrderError) {
+    if (error instanceof OrderError || error instanceof ProspectError) {
       return { content: error.message, isError: true };
     }
     console.error(`[tool:${name}] error inesperado`, error);

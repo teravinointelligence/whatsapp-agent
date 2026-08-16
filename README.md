@@ -47,7 +47,10 @@ buscar_productos  crear_pedido  consultar_pedidos
 | `consultar_producto` | Ficha y existencias por SKU |
 | `crear_pedido` | Crea el pedido en `orders`/`order_items` como borrador |
 | `consultar_pedidos` | Pedidos recientes de las cuentas de ese cliente |
+| `registrar_prospecto` | Captura en `prospects` a quien no es cliente todavía |
 | `buscar_cuenta` | **Sólo administración**: busca cuentas del CRM por nombre |
+| `consultar_prospectos` | **Sólo administración**: lista los prospectos captados |
+| `asignar_prospecto` | **Sólo administración**: se lo asigna a un vendedor |
 
 **La cuenta no es un parámetro de ninguna herramienta.** El servidor la resuelve
 antes de invocar al agente, así que no puede leer ni escribir sobre otro cliente
@@ -81,16 +84,42 @@ el bot lo atiende con precios de lista pero no puede levantarle pedidos.
 > por el teléfono que compartió. El prompt se lo indica y, más importante, las
 > herramientas resuelven la cuenta en el servidor sin consultar al modelo.
 
-### El bot no da de alta clientes
+### Prospectos
 
-No existe herramienta para registrar prospectos, así que el prompt le prohíbe
-decir que "ya quedaron registrados tus datos" o que "un asesor te contactará":
-nadie se enteraría y el cliente se quedaría esperando. A quien no está en el CRM
-se le dice la verdad —que hay que hablar con el equipo comercial— y se le da el
-contacto de `HANDOFF_CONTACT` si está configurado.
+A quien comparte su teléfono pero no está en el CRM, el agente le pregunta de qué
+negocio viene y lo captura en la tabla `prospects` con `registrar_prospecto`. Es
+un embudo, no un alta: el prospecto **no** se vuelve cliente ni puede levantar
+pedidos: eso lo decide una persona.
 
-Si se quiere que el bot sí capture prospectos, hay que crear una tabla en el CRM
-y una herramienta que escriba ahí.
+```
+cliente no identificado
+        │  registrar_prospecto (negocio, contacto, ciudad, interés)
+        ▼
+prospects (status = 'nuevo')  ──►  aviso por Telegram a la administración
+        │  asignar_prospecto "Yamile"
+        ▼
+prospects (status = 'asignado', assigned_rep_id)
+        │  desde el CRM
+        ▼
+cuenta en accounts (status = 'convertido')
+```
+
+- **No se duplica.** El teléfono es único; si vuelve a escribir días después se
+  actualiza el mismo registro, y el estatus no retrocede si ya fue asignado.
+- **Sólo con teléfono compartido.** Sin él no hay a quién registrar ni a quién
+  devolverle la llamada, así que la herramienta lo rechaza.
+- **El personal no se registra a sí mismo.** Ni un cliente ya dado de alta: la
+  herramienta responde con el nombre de la cuenta que ya tiene.
+- **El aviso llega a `role = 'admin'`** que ya haya conversado con el bot y
+  compartido su número — sin eso no tenemos su `chat_id`. Que el aviso falle no
+  impide guardar el prospecto.
+
+Convertirlo en cuenta se hace en el CRM, no desde el chat. Las columnas
+`converted_account_id` y `converted_at` están listas para cuando el panel lo haga.
+
+El prompt sigue prohibiendo decir "ya quedaron registrados tus datos" mientras la
+herramienta no lo confirme: antes eso era una promesa vacía y el cliente se
+quedaba esperando.
 
 ---
 
@@ -106,7 +135,8 @@ del rol:
 | Quién | Qué puede hacer aquí |
 |---|---|
 | Cliente | Catálogo, precios de su cuenta, sus pedidos, levantar pedidos |
-| `role = 'admin'` | Además: `buscar_cuenta` y los pedidos de cualquier cuenta |
+| Prospecto | Catálogo a precio de lista y quedar registrado en `prospects` |
+| `role = 'admin'` | Además: `buscar_cuenta`, los pedidos de cualquier cuenta y los prospectos |
 | Cualquier otro empleado | Se le reconoce y se le remite al agente del CRM |
 
 **La autorización se valida en el servidor, no en el prompt.** Si un cliente o un

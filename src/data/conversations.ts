@@ -100,6 +100,26 @@ export function rememberPhone(userId: string, phone: string): void {
   upsertPhone.run(userId, phone);
 }
 
+/**
+ * Usuarios de Telegram cuyo teléfono coincide con alguno de los dados.
+ *
+ * La comparación es sobre los últimos 10 dígitos, igual que en el CRM: el
+ * número guardado viene de Telegram en E.164 y el del CRM está capturado a
+ * mano en formatos variados.
+ */
+export function getTelegramIdsForPhones(phones: string[]): string[] {
+  if (phones.length === 0) return [];
+
+  const wanted = new Set(phones.map((phone) => phone.replace(/\D/g, "").slice(-10)));
+  const rows = db
+    .prepare(`SELECT user_id, phone FROM identities`)
+    .all() as Array<{ user_id: string; phone: string }>;
+
+  return rows
+    .filter((row) => wanted.has(row.phone.replace(/\D/g, "").slice(-10)))
+    .map((row) => row.user_id);
+}
+
 /** Borra la transcripción de este usuario, conservando su teléfono. */
 export function clearHistory(userId: string): void {
   deleteMessages.run(userId);

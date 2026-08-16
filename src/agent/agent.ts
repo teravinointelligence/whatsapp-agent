@@ -89,7 +89,7 @@ export async function respondTo(
     last.content = `${last.content}\n\n${notes.join("\n")}`;
   }
 
-  const context: ToolContext = { account, staff };
+  const context: ToolContext = { account, staff, phone, userId };
   let reply = "";
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
