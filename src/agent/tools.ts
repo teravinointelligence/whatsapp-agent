@@ -1,45 +1,47 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { AccountContext } from "../crm/accounts.js";
 import {
   getProductBySku,
   listCategories,
   searchProducts,
-} from "../data/catalog.js";
+} from "../crm/catalog.js";
 import {
   createOrder,
-  getOrdersByPhone,
+  getRecentOrders,
   OrderError,
   type OrderItemInput,
-} from "../data/orders.js";
+} from "../crm/orders.js";
 
 /**
- * Contexto que el servidor inyecta en cada ejecución: el agente nunca recibe
- * el número de teléfono como parámetro, para que no pueda leer ni crear
- * pedidos de otro cliente aunque el usuario se lo pida.
+ * Contexto que el servidor resuelve antes de invocar al agente. La cuenta se
+ * deduce del número de WhatsApp: el agente no la elige ni la recibe como
+ * parámetro, así que no puede leer ni escribir sobre otro cliente aunque el
+ * usuario se lo pida.
  */
 export interface ToolContext {
   phone: string;
+  account: AccountContext;
 }
 
 export const tools: Anthropic.Tool[] = [
   {
     name: "buscar_productos",
     description:
-      "Busca vinos y destilados en el catálogo por nombre, productor, origen o categoría. " +
-      "Devuelve SKU, precio unitario sin IVA en MXN y existencias. " +
-      "Úsala siempre antes de mencionar un precio o afirmar que hay disponibilidad: " +
-      "nunca respondas precios ni stock de memoria.",
+      "Busca en el catálogo por nombre, bodega, varietal, región o SKU. Devuelve " +
+      "el precio que le corresponde a ESTE cliente y las existencias del almacén " +
+      "que lo surte. Úsala siempre antes de mencionar un precio o afirmar que hay " +
+      "disponibilidad: nunca respondas precios ni existencias de memoria.",
     input_schema: {
       type: "object",
       properties: {
         query: {
           type: "string",
           description:
-            "Texto libre: nombre del vino, bodega, región o uva. Ej. 'Sancerre', 'Bruma', 'tinto de Valle de Guadalupe'.",
+            "Texto libre: nombre del vino, bodega, uva o región. Ej. 'Sancerre', 'Bruma', 'cabernet'.",
         },
         categoria: {
           type: "string",
-          description:
-            "Filtra por categoría exacta del catálogo. Usa listar_categorias si no la conoces.",
+          description: "Filtra por categoría. Usa listar_categorias si no la conoces.",
         },
         precio_max: {
           type: "number",
@@ -47,7 +49,7 @@ export const tools: Anthropic.Tool[] = [
         },
         solo_disponibles: {
           type: "boolean",
-          description: "Si es true, omite los productos agotados. Por defecto false.",
+          description: "Si es true, omite lo que no tenga existencias. Por defecto false.",
         },
       },
       required: [],
@@ -56,15 +58,16 @@ export const tools: Anthropic.Tool[] = [
   {
     name: "listar_categorias",
     description:
-      "Devuelve las categorías disponibles en el catálogo. Útil cuando el cliente " +
-      "pregunta de forma abierta qué manejamos.",
+      "Devuelve las categorías del catálogo. Útil cuando el cliente pregunta de " +
+      "forma abierta qué manejamos.",
     input_schema: { type: "object", properties: {}, required: [] },
   },
   {
     name: "consultar_producto",
     description:
-      "Devuelve la ficha completa de un producto por su SKU exacto, incluyendo " +
-      "existencias actuales. Úsala para confirmar disponibilidad antes de levantar un pedido.",
+      "Ficha completa de un producto por SKU exacto, con las existencias del " +
+      "almacén de este cliente. Úsala para confirmar disponibilidad antes de " +
+      "levantar un pedido.",
     input_schema: {
       type: "object",
       properties: {
@@ -76,24 +79,24 @@ export const tools: Anthropic.Tool[] = [
   {
     name: "crear_pedido",
     description:
-      "Registra un pedido a nombre del cliente con el que estás conversando. " +
-      "Llámala sólo cuando el cliente ya confirmó explícitamente los productos, las " +
-      "cantidades y a nombre de quién va. La herramienta valida existencias y " +
-      "devuelve el folio y el total; si falla, explica el motivo al cliente.",
+      "Registra el pedido en el CRM como borrador, para que el vendedor asignado " +
+      "lo revise y lo acepte. Llámala sólo cuando el cliente ya confirmó " +
+      "explícitamente productos y cantidades. Valida existencias y devuelve el " +
+      "folio; si falla, explícale al cliente el motivo que devuelva la herramienta. " +
+      "Sólo funciona con clientes identificados.",
     input_schema: {
       type: "object",
       properties: {
-        cliente: {
+        cuenta_id: {
           type: "string",
-          description: "Nombre de la persona o razón social a la que se factura el pedido.",
-        },
-        entrega: {
-          type: "string",
-          description: "Dirección o punto de entrega acordado, si el cliente lo dio.",
+          description:
+            "Obligatorio SÓLO si el contexto indica que este número está vinculado a varias cuentas: " +
+            "el id de la cuenta que el cliente eligió. Nunca lo inventes; usa uno de los del contexto.",
         },
         notas: {
           type: "string",
-          description: "Cualquier indicación adicional del cliente (horario, referencias).",
+          description:
+            "Indicaciones del cliente que el vendedor deba ver: horario de recepción, referencias, urgencia.",
         },
         partidas: {
           type: "array",
@@ -111,35 +114,38 @@ export const tools: Anthropic.Tool[] = [
           },
         },
       },
-      required: ["cliente", "partidas"],
+      required: ["partidas"],
     },
   },
   {
     name: "consultar_pedidos",
     description:
-      "Devuelve los pedidos más recientes de este cliente, con folio, estado y total. " +
-      "Úsala cuando pregunte por el estatus de algo que ya ordenó.",
+      "Devuelve los pedidos recientes de este cliente con folio, estatus y total. " +
+      "Úsala cuando pregunte cómo va algo que ya ordenó.",
     input_schema: { type: "object", properties: {}, required: [] },
   },
 ];
 
-/** Ejecuta una herramienta y devuelve el texto que verá el modelo. */
 export async function runTool(
   name: string,
   input: unknown,
   context: ToolContext,
 ): Promise<{ content: string; isError: boolean }> {
   const args = (input ?? {}) as Record<string, unknown>;
+  const { account } = context;
 
   try {
     switch (name) {
       case "buscar_productos": {
-        const results = searchProducts({
-          query: typeof args.query === "string" ? args.query : undefined,
-          categoria: typeof args.categoria === "string" ? args.categoria : undefined,
-          precioMax: typeof args.precio_max === "number" ? args.precio_max : undefined,
-          soloDisponibles: args.solo_disponibles === true,
-        });
+        const results = await searchProducts(
+          {
+            query: typeof args.query === "string" ? args.query : undefined,
+            categoria: typeof args.categoria === "string" ? args.categoria : undefined,
+            precioMax: typeof args.precio_max === "number" ? args.precio_max : undefined,
+            soloDisponibles: args.solo_disponibles === true,
+          },
+          account,
+        );
 
         if (results.length === 0) {
           return {
@@ -151,13 +157,13 @@ export async function runTool(
       }
 
       case "listar_categorias":
-        return { content: JSON.stringify(listCategories()), isError: false };
+        return { content: JSON.stringify(await listCategories()), isError: false };
 
       case "consultar_producto": {
         const sku = String(args.sku ?? "");
-        const product = getProductBySku(sku);
+        const product = await getProductBySku(sku, account);
         if (!product) {
-          return { content: `No existe el SKU ${sku}.`, isError: true };
+          return { content: `No existe el SKU ${sku} en el catálogo activo.`, isError: true };
         }
         return { content: JSON.stringify(product, null, 2), isError: false };
       }
@@ -172,33 +178,26 @@ export async function runTool(
           };
         });
 
-        const order = createOrder({
-          phone: context.phone,
-          customer: String(args.cliente ?? "").trim() || "Cliente WhatsApp",
-          delivery: typeof args.entrega === "string" ? args.entrega : undefined,
-          notes: typeof args.notas === "string" ? args.notas : undefined,
+        const order = await createOrder({
+          account,
           items,
+          notes: typeof args.notas === "string" ? args.notas : undefined,
+          accountId: typeof args.cuenta_id === "string" ? args.cuenta_id : undefined,
         });
 
-        return {
-          content: JSON.stringify(
-            {
-              folio: order.id,
-              estado: order.status,
-              total_sin_iva: order.total,
-              partidas: order.items,
-            },
-            null,
-            2,
-          ),
-          isError: false,
-        };
+        return { content: JSON.stringify(order, null, 2), isError: false };
       }
 
       case "consultar_pedidos": {
-        const orders = getOrdersByPhone(context.phone);
+        if (!account.isKnown) {
+          return {
+            content: "Este número no está vinculado a ninguna cuenta del CRM.",
+            isError: false,
+          };
+        }
+        const orders = await getRecentOrders(account);
         if (orders.length === 0) {
-          return { content: "Este cliente no tiene pedidos registrados.", isError: false };
+          return { content: "Esta cuenta no tiene pedidos registrados.", isError: false };
         }
         return { content: JSON.stringify(orders, null, 2), isError: false };
       }

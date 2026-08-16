@@ -41,9 +41,22 @@ export const config = {
       | "max",
   },
 
+  crm: {
+    /** URL del proyecto Supabase teravino-crm. */
+    url: required("SUPABASE_URL"),
+    /**
+     * Service role key: el agente escribe pedidos y lee cuentas, así que
+     * necesita saltarse RLS. Esta clave NUNCA debe salir del servidor.
+     */
+    serviceKey: required("SUPABASE_SERVICE_ROLE_KEY"),
+    /** Estatus con el que entran los pedidos levantados por el bot. */
+    orderStatus: optional("ORDER_STATUS", "borrador"),
+    /** Prefijo del folio, para distinguirlos en el CRM. */
+    orderPrefix: optional("ORDER_PREFIX", "COT"),
+  },
+
   business: {
     name: optional("BUSINESS_NAME", "Teravino Wine & Spirits"),
-    /** Se inyecta en el prompt para que el agente sepa en qué horario opera. */
     hours: optional("BUSINESS_HOURS", "Lunes a viernes de 9:00 a 18:00 (hora de Los Cabos)"),
     handoffNumber: process.env.HANDOFF_CONTACT ?? "",
   },
@@ -51,6 +64,35 @@ export const config = {
   /** Cuántos turnos de conversación se recuerdan por número de teléfono. */
   historyTurns: Number(optional("HISTORY_TURNS", "20")),
 
+  /** SQLite guarda sólo el historial del chat; el negocio vive en el CRM. */
   databasePath: optional("DATABASE_PATH", "./data/agent.db"),
-  catalogPath: optional("CATALOG_PATH", "./data/catalog.json"),
 } as const;
+
+/**
+ * Región de la cuenta → almacén del que se surte.
+ * V612 queda fuera a propósito: es bodega central, no plaza de venta.
+ */
+export const WAREHOUSE_BY_REGION: Record<string, string> = {
+  "Los Cabos": "Los Cabos",
+  "Todos Santos": "Los Cabos",
+  "La Paz": "La Paz",
+  Tijuana: "Tijuana",
+  "Puerto Vallarta": "Vallarta",
+  Nayarit: "Vallarta",
+};
+
+/** Almacén que se usa cuando la cuenta no tiene región capturada. */
+export const DEFAULT_WAREHOUSE = optional("DEFAULT_WAREHOUSE", "Los Cabos");
+
+/**
+ * Multiplicador sobre products.base_price según accounts.price_tier.
+ * Deducido de los pedidos existentes: 'base' factura a precio base
+ * (92 de 94 renglones) y '+10' a base + 10% (120 de 125 renglones).
+ */
+export const PRICE_TIER_FACTOR: Record<string, number> = {
+  base: 1.0,
+  "+10": 1.1,
+};
+
+/** Nivel que se aplica a quien no está identificado en el CRM. */
+export const DEFAULT_PRICE_TIER = optional("DEFAULT_PRICE_TIER", "+10");

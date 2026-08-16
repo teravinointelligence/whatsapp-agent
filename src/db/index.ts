@@ -34,17 +34,7 @@ db.exec(`
     processed_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE TABLE IF NOT EXISTS orders (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    phone        TEXT NOT NULL,
-    customer     TEXT NOT NULL,
-    delivery     TEXT,
-    notes        TEXT,
-    items_json   TEXT NOT NULL,
-    total        REAL NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'pendiente',
-    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders (phone, id);
 `);
+
+// Los pedidos, el catálogo y las cuentas viven en el CRM (Supabase). Aquí sólo
+// queda el estado propio del canal de WhatsApp: transcripción y deduplicación.

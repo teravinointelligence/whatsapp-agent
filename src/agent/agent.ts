@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config.js";
-import { SYSTEM_PROMPT } from "./prompt.js";
+import { accountContextBlock, SYSTEM_PROMPT } from "./prompt.js";
 import { runTool, tools, type ToolContext } from "./tools.js";
+import { resolveAccount } from "../crm/accounts.js";
 import {
   appendMessage,
   getHistory,
@@ -43,14 +44,22 @@ export async function respondTo(phone: string, userText: string): Promise<string
     content: entry.content,
   }));
 
-  // El nombre del perfil es contexto variable: va pegado al último turno del
-  // usuario y no al system prompt, para no invalidar el prefijo cacheado.
+  // Quién es el cliente se resuelve aquí, contra el CRM, y no se le pregunta
+  // al modelo: así el agente no puede operar sobre otra cuenta.
+  const account = await resolveAccount(phone);
+
+  // El contexto de la cuenta es variable por cliente: va pegado al último turno
+  // del usuario y no al system prompt, para no invalidar el prefijo cacheado.
   const last = messages[messages.length - 1];
-  if (profileName && last && last.role === "user" && typeof last.content === "string") {
-    last.content = `${last.content}\n\n<contexto>Perfil de WhatsApp del cliente: "${profileName}".</contexto>`;
+  if (last && last.role === "user" && typeof last.content === "string") {
+    const notes = [accountContextBlock(account)];
+    if (profileName && !account.candidates[0]?.contactName) {
+      notes.push(`<contexto>Perfil de WhatsApp: "${profileName}".</contexto>`);
+    }
+    last.content = `${last.content}\n\n${notes.join("\n")}`;
   }
 
-  const context: ToolContext = { phone };
+  const context: ToolContext = { phone, account };
   let reply = "";
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
