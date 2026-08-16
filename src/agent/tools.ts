@@ -7,10 +7,12 @@ import {
 } from "../crm/catalog.js";
 import {
   createOrder,
+  getOrdersForAccount,
   getRecentOrders,
   OrderError,
   type OrderItemInput,
 } from "../crm/orders.js";
+import { searchAccounts, type StaffContext } from "../crm/staff.js";
 
 /**
  * Contexto que el servidor resuelve antes de invocar al agente. La cuenta sale
@@ -20,6 +22,8 @@ import {
  */
 export interface ToolContext {
   account: AccountContext;
+  /** Cuando quien escribe es del equipo de Teravino, no un cliente. */
+  staff: StaffContext | null;
 }
 
 export const tools: Anthropic.Tool[] = [
@@ -119,9 +123,38 @@ export const tools: Anthropic.Tool[] = [
   {
     name: "consultar_pedidos",
     description:
-      "Devuelve los pedidos recientes de este cliente con folio, estatus y total. " +
-      "Úsala cuando pregunte cómo va algo que ya ordenó.",
-    input_schema: { type: "object", properties: {}, required: [] },
+      "Devuelve los pedidos recientes con folio, estatus y total. Sin argumentos " +
+      "consulta los del cliente con el que hablas. Si eres personal de Teravino " +
+      "puedes pasar cuenta_id para ver los de cualquier cuenta.",
+    input_schema: {
+      type: "object",
+      properties: {
+        cuenta_id: {
+          type: "string",
+          description:
+            "Sólo para personal de Teravino: id de la cuenta cuyos pedidos quieres ver. " +
+            "Obtenlo con buscar_cuenta.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "buscar_cuenta",
+    description:
+      "SÓLO para personal de Teravino. Busca cuentas del CRM por nombre del " +
+      "negocio y devuelve su id, región, nivel de precio, estatus y días de " +
+      "crédito. Si quien escribe es un cliente, esta herramienta se rechaza.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nombre: {
+          type: "string",
+          description: "Parte del nombre del negocio. Ej. 'Justina', 'Four Seasons'.",
+        },
+      },
+      required: ["nombre"],
+    },
   },
 ];
 
@@ -131,7 +164,7 @@ export async function runTool(
   context: ToolContext,
 ): Promise<{ content: string; isError: boolean }> {
   const args = (input ?? {}) as Record<string, unknown>;
-  const { account } = context;
+  const { account, staff } = context;
 
   try {
     switch (name) {
@@ -188,9 +221,31 @@ export async function runTool(
       }
 
       case "consultar_pedidos": {
+        const requestedAccount =
+          typeof args.cuenta_id === "string" ? args.cuenta_id.trim() : "";
+
+        // Consultar una cuenta arbitraria es privilegio del equipo: un cliente
+        // sólo puede ver las suyas, aunque pase el id de otra.
+        if (requestedAccount) {
+          if (!staff) {
+            return {
+              content:
+                "Sólo el personal de Teravino puede consultar pedidos de otras cuentas.",
+              isError: true,
+            };
+          }
+          const orders = await getOrdersForAccount(requestedAccount);
+          if (orders.length === 0) {
+            return { content: "Esa cuenta no tiene pedidos registrados.", isError: false };
+          }
+          return { content: JSON.stringify(orders, null, 2), isError: false };
+        }
+
         if (!account.isKnown) {
           return {
-            content: "Este número no está vinculado a ninguna cuenta del CRM.",
+            content: staff
+              ? "Eres personal de Teravino, no una cuenta de cliente. Usa buscar_cuenta y pasa cuenta_id."
+              : "Este número no está vinculado a ninguna cuenta del CRM.",
             isError: false,
           };
         }
@@ -199,6 +254,21 @@ export async function runTool(
           return { content: "Esta cuenta no tiene pedidos registrados.", isError: false };
         }
         return { content: JSON.stringify(orders, null, 2), isError: false };
+      }
+
+      case "buscar_cuenta": {
+        if (!staff) {
+          return {
+            content:
+              "Sólo el personal de Teravino puede consultar el padrón de cuentas.",
+            isError: true,
+          };
+        }
+        const results = await searchAccounts(String(args.nombre ?? ""));
+        if (results.length === 0) {
+          return { content: "Ninguna cuenta coincide con ese nombre.", isError: false };
+        }
+        return { content: JSON.stringify(results, null, 2), isError: false };
       }
 
       default:

@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import type { AccountContext } from "../crm/accounts.js";
+import type { StaffContext } from "../crm/staff.js";
 
 /**
  * El system prompt se mantiene byte-estable entre peticiones para que el
@@ -45,6 +46,15 @@ puedes cotizarle a su precio ni levantarle pedidos.
 Si ya compartió el teléfono pero no aparece en el CRM, atiéndelo con precios de
 lista, pide el nombre del negocio y de la persona, y dile que un asesor lo
 contactará para darlo de alta. No prometas fechas.
+
+# Cuando escribe alguien del equipo de Teravino
+Si el contexto dice que quien escribe es personal de Teravino, no lo trates como
+cliente: no le pidas su número ni le ofrezcas darlo de alta. Ya sabes quién es.
+Con ellos puedes consultar cualquier cuenta del CRM con buscar_cuenta, y ver los
+pedidos de cualquier cuenta pasando su cuenta_id a consultar_pedidos.
+Háblales como a un colega: directo, sin el discurso de ventas.
+No levantes pedidos a nombre de un cliente cuando te lo pida el equipo por este
+canal; eso se hace desde el CRM.
 
 # Compradores con varias cuentas
 Si el contexto lista más de una cuenta, es un comprador que atiende varios
@@ -130,5 +140,24 @@ export function accountContextBlock(
   }
 
   lines.push("</contexto>");
+  return lines.join("\n");
+}
+
+/** Bloque de contexto para cuando quien escribe es del equipo de Teravino. */
+export function staffContextBlock(staff: StaffContext): string {
+  const lines = [
+    "<contexto>",
+    `Quien escribe es PERSONAL de Teravino: ${staff.name}, rol "${staff.role}".`,
+  ];
+
+  if (staff.region) lines.push(`Su plaza es ${staff.region}.`);
+  if (staff.isAdmin) lines.push("Es administrador: puede consultar cualquier cuenta.");
+
+  lines.push(
+    "No es un cliente: no le pidas su teléfono ni lo trates como cuenta.",
+    "Los precios que devuelvan las herramientas son de lista, no de una cuenta concreta.",
+    "</contexto>",
+  );
+
   return lines.join("\n");
 }

@@ -248,3 +248,29 @@ export async function getRecentOrders(
 
   return data ?? [];
 }
+
+/**
+ * Pedidos de una cuenta cualquiera, por id. Sólo la usa el personal: para un
+ * cliente el acceso pasa siempre por getRecentOrders, que se limita a sus
+ * propias cuentas.
+ */
+export async function getOrdersForAccount(
+  accountId: string,
+  limit = 5,
+): Promise<unknown[]> {
+  const { data, error } = await crm
+    .from("orders")
+    .select(
+      "order_number, status, fulfillment_status, order_date, total, warehouse, accounts(business_name), order_items(product_name, quantity, unit_price)",
+    )
+    .eq("account_id", accountId)
+    .order("order_date", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("[crm] no se pudieron leer pedidos de la cuenta:", error.message);
+    return [];
+  }
+
+  return data ?? [];
+}

@@ -1,8 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config, DEFAULT_PRICE_TIER, DEFAULT_WAREHOUSE } from "../config.js";
-import { accountContextBlock, SYSTEM_PROMPT } from "./prompt.js";
+import { accountContextBlock, staffContextBlock, SYSTEM_PROMPT } from "./prompt.js";
 import { runTool, tools, type ToolContext } from "./tools.js";
 import { resolveAccount, type AccountContext } from "../crm/accounts.js";
+import { resolveStaff } from "../crm/staff.js";
 import {
   appendMessage,
   getDisplayName,
@@ -69,20 +70,26 @@ export async function respondTo(
   // al modelo: así el agente no puede operar sobre otra cuenta. En Telegram
   // el teléfono sólo existe si la persona lo compartió antes.
   const phone = getPhoneFor(userId);
-  const account = phone ? await resolveAccount(phone) : NO_ACCOUNT;
+
+  // El personal de Teravino se resuelve primero: si el número está en
+  // sales_reps, no se le trata como cliente aunque además fuera un contacto.
+  const staff = phone ? await resolveStaff(phone) : null;
+  const account = phone && !staff ? await resolveAccount(phone) : NO_ACCOUNT;
 
   // El contexto de la cuenta es variable por cliente: va pegado al último turno
   // del usuario y no al system prompt, para no invalidar el prefijo cacheado.
   const last = messages[messages.length - 1];
   if (last && last.role === "user" && typeof last.content === "string") {
-    const notes = [accountContextBlock(account, phone !== null)];
+    const notes = [
+      staff ? staffContextBlock(staff) : accountContextBlock(account, phone !== null),
+    ];
     if (displayName && !account.candidates[0]?.contactName) {
       notes.push(`<contexto>Nombre en Telegram: "${displayName}".</contexto>`);
     }
     last.content = `${last.content}\n\n${notes.join("\n")}`;
   }
 
-  const context: ToolContext = { account };
+  const context: ToolContext = { account, staff };
   let reply = "";
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {

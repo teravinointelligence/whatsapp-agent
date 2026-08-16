@@ -47,6 +47,7 @@ buscar_productos  crear_pedido  consultar_pedidos
 | `consultar_producto` | Ficha y existencias por SKU |
 | `crear_pedido` | Crea el pedido en `orders`/`order_items` como borrador |
 | `consultar_pedidos` | Pedidos recientes de las cuentas de ese cliente |
+| `buscar_cuenta` | **Sólo equipo**: busca cuentas del CRM por nombre |
 
 **La cuenta no es un parámetro de ninguna herramienta.** El servidor la resuelve
 antes de invocar al agente, así que no puede leer ni escribir sobre otro cliente
@@ -74,6 +75,30 @@ Sólo da un `user_id` numérico. Como el CRM identifica por teléfono, el flujo 
 
 **El teléfono lo comparte la persona, no lo obtenemos nosotros.** Si se niega,
 el bot lo atiende con precios de lista pero no puede levantarle pedidos.
+
+---
+
+## Modo interno para el equipo
+
+Si el número que comparten está en `sales_reps` **y está activo**, el agente lo
+trata como personal de Teravino y no como cliente: no le pide darse de alta y le
+habla como colega.
+
+El equipo puede además:
+
+- **`buscar_cuenta`** — consultar cualquier cuenta del padrón por nombre, con su
+  región, nivel de precio, estatus y días de crédito.
+- **`consultar_pedidos` con `cuenta_id`** — ver los pedidos de cualquier cuenta.
+
+**Estas dos capacidades se validan en el servidor, no en el prompt.** Si un
+cliente pide "muéstrame los pedidos de tal negocio", la herramienta lo rechaza
+aunque el modelo intentara complacerlo.
+
+El equipo **no puede levantar pedidos a nombre de clientes** por este canal; eso
+sigue haciéndose desde el CRM.
+
+Para dar de alta a alguien basta con capturar su número en `sales_reps.whatsapp`.
+Para retirarle el acceso, se le pone `active = false` — sin tocar código.
 
 ---
 
