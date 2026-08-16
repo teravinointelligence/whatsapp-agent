@@ -37,6 +37,21 @@ export function claimOrderStuckAlert(orderId: string): boolean {
   return claimOrderAlert.run(orderId).changes > 0;
 }
 
+const claimFile = db.prepare(
+  `INSERT OR IGNORE INTO inventory_files (file_id) VALUES (?)`,
+);
+
+/**
+ * Devuelve true la primera vez que se ve un archivo de inventario.
+ *
+ * Los archivos de Drive no cambian una vez subidos: cada corte es uno nuevo.
+ * Con esto, la revisión diaria sólo escribe cuando de verdad hay algo nuevo, y
+ * no vuelve a avisar del mismo corte.
+ */
+export function claimInventoryFile(fileId: string): boolean {
+  return claimFile.run(fileId).changes > 0;
+}
+
 /** Se olvida del pedido cuando ya salió de borrador, por si vuelve a caer. */
 export function clearOrderStuckAlert(orderId: string): void {
   forgetOrderAlert.run(orderId);

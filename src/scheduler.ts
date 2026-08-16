@@ -7,6 +7,7 @@ import {
   type PendingOrder,
 } from "./crm/digest.js";
 import { claimDailyJob, claimOrderStuckAlert } from "./data/jobs.js";
+import { syncInventories } from "./inventory/sync.js";
 import { tellAdmins } from "./notify.js";
 
 /** Cada cuánto se revisa si a algún aviso le toca. */
@@ -44,6 +45,50 @@ function localNow(): { day: string; hour: number; minute: number; weekday: strin
     minute: Number(parts.minute),
     weekday: String(parts.weekday),
   };
+}
+
+/**
+ * Carga los inventarios nuevos de Drive y avisa qué entró.
+ *
+ * Si no hay archivo nuevo no manda nada: un aviso diario de "sin novedad" se
+ * deja de leer a la semana.
+ */
+export async function syncAndReportInventories(): Promise<void> {
+  const { resultados, rollup, huboCambios } = await syncInventories();
+  const fallidos = resultados.filter((r) => r.error);
+
+  if (!huboCambios && fallidos.length === 0) return;
+
+  const lines = ["📦 <b>Inventarios actualizados</b>", ""];
+
+  for (const r of resultados) {
+    if (r.error) {
+      lines.push(`⚠️ ${r.almacen}: no se pudo cargar (${r.error})`);
+      continue;
+    }
+    if (r.escritas === 0) continue;
+
+    lines.push(
+      `<b>${r.almacen}</b> · corte ${r.corte ?? "s/f"} · ${r.escritas} productos · ${r.botellas.toLocaleString("es-MX")} botellas`,
+    );
+
+    if (r.sinProducto.length > 0) {
+      const detalle = r.sinProducto
+        .slice(0, 3)
+        .map((item) => `${item.codigo} (${item.cantidad})`)
+        .join(", ");
+      lines.push(
+        `   ⚠️ ${r.sinProducto.length} código(s) sin producto en el CRM: ${detalle}` +
+          (r.sinProducto.length > 3 ? "…" : ""),
+      );
+    }
+  }
+
+  if (rollup > 0) {
+    lines.push("", `Se recalculó el total de ${rollup} producto(s).`);
+  }
+
+  await tellAdmins(lines.join("\n"));
 }
 
 /** Resumen de la mañana: lo que necesita atención hoy. */
@@ -178,7 +223,8 @@ export function startScheduler(): void {
   }
 
   console.log(
-    `Avisos programados activos: resumen ${config.avisos.briefingHour}:00, ` +
+    `Avisos programados activos: inventarios ${config.inventarios.hour}:00, ` +
+      `resumen ${config.avisos.briefingHour}:00, ` +
       `dormidos los lunes ${config.avisos.dormantHour}:00 (${config.avisos.timezone}).`,
   );
 
@@ -186,6 +232,16 @@ export function startScheduler(): void {
     const { day, hour, weekday } = localNow();
 
     try {
+      // Primero los inventarios: así el resumen de la mañana ya sale con las
+      // existencias del día y no con las de ayer.
+      if (
+        config.inventarios.enabled &&
+        hour >= config.inventarios.hour &&
+        claimDailyJob("inventarios", day)
+      ) {
+        await syncAndReportInventories();
+      }
+
       if (hour >= config.avisos.briefingHour && claimDailyJob("briefing", day)) {
         await sendDailyBriefing();
       }

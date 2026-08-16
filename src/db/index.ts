@@ -67,6 +67,13 @@ db.exec(`
     alerted_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  -- Archivos de inventario de Drive que ya se cargaron al CRM. Sin esto, la
+  -- revisión diaria volvería a escribir el mismo corte todos los días.
+  CREATE TABLE IF NOT EXISTS inventory_files (
+    file_id     TEXT PRIMARY KEY,
+    imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   -- Offset confirmado del long polling, para no reprocesar tras un reinicio.
   CREATE TABLE IF NOT EXISTS polling_state (
     id     INTEGER PRIMARY KEY CHECK (id = 1),

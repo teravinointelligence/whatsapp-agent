@@ -419,6 +419,49 @@ Usa el mismo bucle y el mismo CRM. **Los pedidos que levantes se crean de verdad
 
 ---
 
+## Inventarios: de CONTPAQ al CRM, solos
+
+Lo único manual es subir el reporte de CONTPAQ a Google Drive. A las **6 de la
+mañana** el bot revisa las cinco carpetas y carga lo que haya de nuevo:
+
+```
+Drive/Teravino Inventarios/<Almacén>/2026-08-15 Los Cabos
+        │  lista la carpeta y toma el corte con la fecha más nueva
+        ▼
+  reporte CONTPAQ (CSV)  →  código_contpaqi → product_id
+        ▼
+  product_warehouse_stock   +   recalcular_stock_rollup()
+        ▼
+  inventory_imports (queda el registro)  →  aviso por Telegram
+```
+
+- **Sin credenciales de Google.** Las carpetas están compartidas por link, así
+  que se leen con dos URLs públicas: `embeddedfolderview` para listar y
+  `export?format=csv` para bajar. No hay cuenta de servicio ni llaves que rotar.
+  Si algún día se cierra la carpeta, lo único que cambia es `src/inventory/drive.ts`.
+- **Sólo archivos con fecha al inicio del nombre.** En cada carpeta vive también
+  un *"Histórico existencias"* que no es un corte; cargarlo borraría el
+  inventario con datos de otra cosa.
+- **Cada archivo se carga una sola vez** (`inventory_files` en SQLite). Mientras
+  nadie suba uno nuevo, la revisión diaria no escribe ni avisa.
+- **Se lee la columna Existencia**, no Inicial —que es el arranque del mes— y se
+  entiende `[3.00]`, que es como CONTPAQ marca lo que está en levantamiento
+  físico.
+- **Un almacén que falle no detiene a los demás**: se anota el error, se avisa y
+  se sigue. Perder Vallarta por una caída de Drive no es razón para quedarse sin
+  Los Cabos.
+- **Los códigos sin producto en el CRM se reportan**, no se callan: van al aviso
+  y al `error_log` de `inventory_imports` para que alguien los mapee.
+
+Las carpetas se configuran con `DRIVE_LOS_CABOS`, `DRIVE_LA_PAZ`,
+`DRIVE_TIJUANA`, `DRIVE_VALLARTA` y `DRIVE_V612`; la hora con `INVENTARIO_HOUR`
+y se apaga con `INVENTARIOS=off`.
+
+> **El precio de que no haya credenciales**: cualquiera con el link puede ver el
+> inventario. Es una decisión de negocio, no técnica. Si se prefiere cerrar la
+> carpeta, hay que cambiar a una cuenta de servicio de Google y guardar su llave
+> junto a las demás del `.env`.
+
 ## Avisos programados
 
 El bot no sólo contesta: también avisa. Corren dentro del mismo proceso, contra la
@@ -427,6 +470,7 @@ horario de verano), no la del servidor.
 
 | Aviso | Cuándo | Qué manda |
 |---|---|---|
+| Inventarios | Diario, 6:00 | Qué corte entró por almacén y qué códigos no se pudieron mapear |
 | Resumen del día | Diario, 7:00 | Pedidos por revisar, prospectos sin asignar, muestras pendientes, vencido y lo que vence esta semana |
 | Pedido atorado | Diario, con el resumen | Borradores con más de 48 h sin que el vendedor los mueva, con nombre de quién los tiene |
 | Clientes dormidos | Lunes, 8:00 | Cuentas activas sin comprar en 60 días, agrupadas por vendedor |

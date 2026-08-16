@@ -69,6 +69,24 @@ export const config = {
   /** Cuántos turnos de conversación se recuerdan por número de teléfono. */
   historyTurns: Number(optional("HISTORY_TURNS", "20")),
 
+  /**
+   * Carpetas de Google Drive donde se suben los inventarios de CONTPAQ, una
+   * por almacén. El nombre de la llave es el nombre del almacén en el CRM.
+   */
+  inventarios: {
+    carpetas: {
+      "Los Cabos": optional("DRIVE_LOS_CABOS", "1H0a86XugYyCOg6DoXA8b1B-pK93Fwq6i"),
+      "La Paz": optional("DRIVE_LA_PAZ", "1ixUUcZtlnXWQhGVCw0jdcH5OvHITR71r"),
+      Tijuana: optional("DRIVE_TIJUANA", "1CZFYLzyhTaVejrGY5vVmxaqEUEVqUIbp"),
+      Vallarta: optional("DRIVE_VALLARTA", "19so7Csnzsk3oQtp28ffDwtpX0Ii8UnfL"),
+      V612: optional("DRIVE_V612", "1N6kV0Cj6yar8pxfd1MJlqwePPO3Rj1Ae"),
+    } as Record<string, string>,
+    /** Hora de la revisión diaria. Antes del resumen, para que salga al día. */
+    hour: Number(optional("INVENTARIO_HOUR", "6")),
+    /** false apaga la carga automática. */
+    enabled: optional("INVENTARIOS", "on") !== "off",
+  },
+
   avisos: {
     /**
      * Zona horaria para los avisos programados. Los Cabos y La Paz usan
