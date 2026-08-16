@@ -1,0 +1,119 @@
+[
+  {
+    "sku": "TV-BLA-001",
+    "nombre": "Bruma Ocho Blanco",
+    "categoria": "Vino blanco",
+    "productor": "Bruma Vinícola",
+    "origen": "Valle de Guadalupe, Baja California",
+    "anada": "2023",
+    "presentacion": "750 ml",
+    "precio": 645,
+    "stock": 48,
+    "notas": "Chardonnay y Sauvignon Blanc. Cítrico, fresco, final salino. Va bien con ostión y ceviche."
+  },
+  {
+    "sku": "TV-TIN-002",
+    "nombre": "Bruma Nueve Tinto",
+    "categoria": "Vino tinto",
+    "productor": "Bruma Vinícola",
+    "origen": "Valle de Guadalupe, Baja California",
+    "anada": "2021",
+    "presentacion": "750 ml",
+    "precio": 890,
+    "stock": 30,
+    "notas": "Mezcla tinta de corte bordelés. Fruta negra, tabaco, taninos pulidos."
+  },
+  {
+    "sku": "TV-BLA-003",
+    "nombre": "Sancerre Les Baronnes",
+    "categoria": "Vino blanco",
+    "productor": "Henri Bourgeois",
+    "origen": "Loira, Francia",
+    "anada": "2022",
+    "presentacion": "750 ml",
+    "precio": 1180,
+    "stock": 24,
+    "notas": "Sauvignon Blanc clásico. Pomelo, hierba fresca, mineralidad de sílex."
+  },
+  {
+    "sku": "TV-ESP-004",
+    "nombre": "Champagne Brut Réserve",
+    "categoria": "Espumoso",
+    "productor": "Charles Heidsieck",
+    "origen": "Champagne, Francia",
+    "presentacion": "750 ml",
+    "precio": 2450,
+    "stock": 12,
+    "notas": "Brut sin añada. Brioche, avellana, burbuja fina. Aperitivo o mariscos."
+  },
+  {
+    "sku": "TV-TIN-005",
+    "nombre": "Habla del Silencio",
+    "categoria": "Vino tinto",
+    "productor": "Bodegas Habla",
+    "origen": "Extremadura, España",
+    "anada": "2021",
+    "presentacion": "750 ml",
+    "precio": 720,
+    "stock": 60,
+    "notas": "Syrah, Cabernet y Tempranillo. Fruta madura y vainilla. Muy versátil en carta por copeo."
+  },
+  {
+    "sku": "TV-ROS-006",
+    "nombre": "Vinaltura Rosado de Nebbiolo",
+    "categoria": "Vino rosado",
+    "productor": "Vinaltura",
+    "origen": "Valle de Guadalupe, Baja California",
+    "anada": "2023",
+    "presentacion": "750 ml",
+    "precio": 580,
+    "stock": 0,
+    "notas": "Rosado seco de Nebbiolo. Fresa, toronja rosa. Agotado, reposición estimada el próximo mes."
+  },
+  {
+    "sku": "TV-TIN-007",
+    "nombre": "La Crema Pinot Noir Sonoma Coast",
+    "categoria": "Vino tinto",
+    "productor": "La Crema",
+    "origen": "Sonoma, California",
+    "anada": "2022",
+    "presentacion": "750 ml",
+    "precio": 1050,
+    "stock": 36,
+    "notas": "Pinot Noir elegante. Cereza, tierra húmeda, acidez viva. Ideal con atún sellado."
+  },
+  {
+    "sku": "TV-DES-008",
+    "nombre": "Mezcal Espadín Joven",
+    "categoria": "Destilado",
+    "productor": "Perro del Mar",
+    "origen": "Oaxaca",
+    "presentacion": "750 ml",
+    "precio": 980,
+    "stock": 18,
+    "notas": "Espadín 45% alc. Ahumado medio, agave cocido, cítrico al final."
+  },
+  {
+    "sku": "TV-CER-009",
+    "nombre": "Wendlandt Vaquita Marina",
+    "categoria": "Cerveza",
+    "productor": "Cervecería Wendlandt",
+    "origen": "Ensenada, Baja California",
+    "presentacion": "355 ml",
+    "precio": 62,
+    "stock": 240,
+    "notas": "Porter con notas de café y chocolate. Se vende por caja de 24."
+  },
+  {
+    "sku": "TV-BLA-010",
+    "nombre": "Tapiz Chardonnay Reserva",
+    "categoria": "Vino blanco",
+    "productor": "Bodega Tapiz",
+    "origen": "Mendoza, Argentina",
+    "anada": "2022",
+    "presentacion": "750 ml",
+    "precio": 690,
+    "stock": 42,
+    "notas": "Chardonnay con paso por barrica. Durazno, mantequilla, buen volumen en boca."
+  }
+]
