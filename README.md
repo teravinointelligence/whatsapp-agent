@@ -47,6 +47,7 @@ buscar_productos  crear_pedido  consultar_pedidos
 | `consultar_producto` | Ficha y existencias por SKU |
 | `crear_pedido` | Crea el pedido en `orders`/`order_items` como borrador |
 | `consultar_pedidos` | Pedidos recientes de las cuentas de ese cliente |
+| `vincular_cuenta` | Liga el teléfono a una cuenta existente contra su número de cliente |
 | `enviar_portafolio` | Devuelve el link del portafolio digital de la plaza del cliente |
 | `registrar_prospecto` | Captura en `prospects` a quien no es cliente todavía, con su correo |
 | `buscar_cuenta` | **Sólo administración**: busca cuentas del CRM por nombre |
@@ -85,10 +86,53 @@ el bot lo atiende con precios de lista pero no puede levantarle pedidos.
 > por el teléfono que compartió. El prompt se lo indica y, más importante, las
 > herramientas resuelven la cuenta en el servidor sin consultar al modelo.
 
+### Cliente de años, teléfono desconocido
+
+Sólo 585 contactos tienen teléfono capturado, así que hay clientes viejos cuyo
+número no reconocemos. Antes de tratarlos como prospectos, el agente pregunta si
+ya nos compran; si dicen que sí, el filtro es su **número de cliente**:
+
+```
+"ya soy cliente"
+     │  ¿número de cliente?            ← el filtro; el agente nunca se lo dice
+     ▼
+accounts.client_number  ──── no existe ──►  hasta 3 intentos, luego a una persona
+     │  ¿su nombre?
+     ▼
+contacts (teléfono ligado a la cuenta)  ──►  aviso por Telegram a la administración
+     │
+     ▼
+desde el siguiente mensaje se le reconoce solo
+```
+
+- **El nombre no se valida, se registra.** Si esa persona no estaba en el CRM se
+  crea como contacto de la cuenta; si ya estaba sin teléfono, se le agrega. Un
+  contacto que ya tenía teléfono nunca se pisa: se crea otro y el vendedor decide,
+  porque dos personas del mismo hotel se pueden llamar igual.
+- **Ocho números están repetidos en dos cuentas** (The Woods y Diamante 88 son la
+  228; Mozza y Delphine la 449). Ahí se le pide el nombre del negocio, **sin
+  enseñarle opciones**: quien esté tanteando números no tiene por qué enterarse de
+  quiénes son nuestros clientes.
+- **Tres intentos fallidos y se acabó.** Los números van del 1 al 502, así que sin
+  tope cualquiera los prueba todos. El contador vive en SQLite y **`/reiniciar` no
+  lo repone** — si lo repusiera, no serviría de nada.
+- **Cada vinculación te llega por Telegram** con negocio, persona y teléfono. Es la
+  contraparte de dejar que el cliente se identifique sin intervención humana: si
+  alguien se cuelga de una cuenta ajena, se ve en el acto y borras el contacto.
+
+> **Qué tan fuerte es este filtro.** Un número de 1 a 502 es adivinable, y el tope
+> de tres intentos es un freno, no un muro: quien insista puede abrir otra cuenta
+> de Telegram. Lo que gana quien se cuele es ver el historial de pedidos de esa
+> cuenta y dejar pedidos en borrador que un vendedor revisa antes de surtir; los
+> precios ya son públicos en el portafolio. Si se quiere apretar, el siguiente
+> paso barato es pedirle también el nombre del negocio siempre, no sólo cuando el
+> número está repetido.
+
 ### Prospectos
 
-A quien comparte su teléfono pero no está en el CRM, el agente le pregunta de qué
-negocio viene y cuál es su correo, y lo captura en la tabla `prospects` con
+A quien comparte su teléfono, no está en el CRM y **no es cliente todavía**, el
+agente le pregunta de qué negocio viene y cuál es su correo, y lo captura en
+la tabla `prospects` con
 `registrar_prospecto`. Es un embudo, no un alta: el prospecto **no** se vuelve
 cliente ni puede levantar pedidos: eso lo decide una persona.
 

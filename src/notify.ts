@@ -10,7 +10,8 @@ import type { Prospect } from "./crm/prospects.js";
  * El aviso sólo llega a quien ya haya conversado con el bot y compartido su
  * número: sin eso no tenemos su chat_id y no hay a dónde escribirle.
  */
-export async function notifyAdminsOfProspect(prospect: Prospect): Promise<void> {
+/** Manda el mismo texto a la administración, sin tumbar nada si falla. */
+async function tellAdmins(text: string): Promise<void> {
   const { data, error } = await crm
     .from("sales_reps")
     .select("whatsapp")
@@ -32,6 +33,19 @@ export async function notifyAdminsOfProspect(prospect: Prospect): Promise<void> 
   const chatIds = getTelegramIdsForPhones(phones);
   if (chatIds.length === 0) return;
 
+  await Promise.all(
+    chatIds.map(async (chatId) => {
+      try {
+        await sendText(Number(chatId), text);
+      } catch (error) {
+        // Un aviso fallido no debe tumbar la operación que lo disparó.
+        console.error(`[notify] no se pudo avisar a ${chatId}:`, error);
+      }
+    }),
+  );
+}
+
+export async function notifyAdminsOfProspect(prospect: Prospect): Promise<void> {
   const lines = [
     "🆕 <b>Prospecto nuevo</b>",
     "",
@@ -45,16 +59,36 @@ export async function notifyAdminsOfProspect(prospect: Prospect): Promise<void> 
   if (prospect.interes) lines.push(`Interés: ${prospect.interes}`);
   lines.push("", "Para asignarlo dime a qué vendedor va.");
 
-  const text = lines.join("\n");
+  await tellAdmins(lines.join("\n"));
+}
 
-  await Promise.all(
-    chatIds.map(async (chatId) => {
-      try {
-        await sendText(Number(chatId), text);
-      } catch (error) {
-        // Un aviso fallido no debe tumbar el registro del prospecto.
-        console.error(`[notify] no se pudo avisar a ${chatId}:`, error);
-      }
-    }),
-  );
+/**
+ * Aviso de que un teléfono se ligó solo a una cuenta dando su número de
+ * cliente.
+ *
+ * Es la contraparte de dejar que el cliente se identifique sin intervención
+ * humana: si alguien se cuelga de una cuenta que no es suya, se ve en el acto
+ * y el contacto se puede borrar del CRM.
+ */
+export async function notifyAdminsOfAccountLink(link: {
+  businessName: string;
+  clientNumber: string | null;
+  personName: string;
+  phone: string;
+  contactCreated: boolean;
+}): Promise<void> {
+  const lines = [
+    "🔗 <b>Cliente se identificó por Telegram</b>",
+    "",
+    `<b>${link.businessName}</b>${link.clientNumber ? ` (cliente ${link.clientNumber})` : ""}`,
+    `Persona: ${link.personName}`,
+    `Teléfono: ${link.phone}`,
+    link.contactCreated
+      ? "Se registró como contacto nuevo de la cuenta."
+      : "Ya estaba en el CRM; se le agregó este teléfono.",
+    "",
+    "Si no lo reconoces, borra el contacto en el CRM y avísame.",
+  ];
+
+  await tellAdmins(lines.join("\n"));
 }

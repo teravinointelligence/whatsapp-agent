@@ -44,6 +44,15 @@ db.exec(`
     processed_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  -- Intentos fallidos de identificarse con un número de cliente ajeno. Los
+  -- números son del 1 al 502, así que sin un tope cualquiera los prueba todos.
+  -- No se borra con /reiniciar: si se borrara, el tope no serviría de nada.
+  CREATE TABLE IF NOT EXISTS link_attempts (
+    user_id    TEXT PRIMARY KEY,
+    failures   INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   -- Offset confirmado del long polling, para no reprocesar tras un reinicio.
   CREATE TABLE IF NOT EXISTS polling_state (
     id     INTEGER PRIMARY KEY CHECK (id = 1),

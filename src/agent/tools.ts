@@ -1,5 +1,16 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AccountContext } from "../crm/accounts.js";
+import { resolveAccount, type AccountContext } from "../crm/accounts.js";
+import {
+  findAccountsByClientNumber,
+  linkPhoneToAccount,
+  LinkError,
+  normalizeName,
+} from "../crm/link.js";
+import {
+  clearLinkFailures,
+  getLinkFailures,
+  recordLinkFailure,
+} from "../data/conversations.js";
 import {
   getProductBySku,
   listCategories,
@@ -19,7 +30,7 @@ import {
   ProspectError,
   registerProspect,
 } from "../crm/prospects.js";
-import { notifyAdminsOfProspect } from "../notify.js";
+import { notifyAdminsOfAccountLink, notifyAdminsOfProspect } from "../notify.js";
 import { findPortfolios, plazaNames, portfolioForPlaza } from "../portfolio.js";
 
 /**
@@ -37,6 +48,15 @@ export interface ToolContext {
   /** Id de Telegram, para poder volver a contactar al prospecto. */
   userId: string;
 }
+
+/**
+ * Intentos con número de cliente equivocado antes de cortar.
+ *
+ * Los números van del 1 al 502, así que sin tope cualquiera los prueba hasta
+ * pegarle a una cuenta ajena. Tres es suficiente para el cliente que se
+ * equivoca de dígito y poco para quien anda tanteando.
+ */
+const MAX_LINK_FAILURES = 3;
 
 export const tools: Anthropic.Tool[] = [
   {
@@ -166,6 +186,36 @@ export const tools: Anthropic.Tool[] = [
         },
       },
       required: ["nombre"],
+    },
+  },
+  {
+    name: "vincular_cuenta",
+    description:
+      "Identifica a quien dice ya ser cliente de Teravino pero cuyo número no " +
+      "reconocemos. Pídele PRIMERO su número de cliente —ese es el filtro— y " +
+      "después su nombre; con los dos llama esta herramienta. Si el número es " +
+      "correcto, su teléfono queda ligado a la cuenta y desde ese momento se le " +
+      "atiende con sus precios. Si no lo tiene a la mano, no lo adivines ni lo " +
+      "supongas: sin número no hay vinculación.",
+    input_schema: {
+      type: "object",
+      properties: {
+        numero_cliente: {
+          type: "string",
+          description: "Número de cliente tal como lo dio. Ej. '270', '439'.",
+        },
+        nombre: {
+          type: "string",
+          description: "Nombre completo de la persona con la que hablas.",
+        },
+        negocio: {
+          type: "string",
+          description:
+            "Nombre del negocio. Sólo hace falta cuando la herramienta te avise " +
+            "que ese número corresponde a más de una cuenta.",
+        },
+      },
+      required: ["numero_cliente", "nombre"],
     },
   },
   {
@@ -383,6 +433,138 @@ export async function runTool(
         return { content: JSON.stringify(results, null, 2), isError: false };
       }
 
+      case "vincular_cuenta": {
+        if (staff) {
+          return {
+            content: "Eres del equipo de Teravino; esto es para clientes.",
+            isError: true,
+          };
+        }
+        if (!phone) {
+          return {
+            content:
+              "Todavía no comparte su teléfono, y es lo que vamos a ligar a la cuenta. Pídeselo primero con el botón.",
+            isError: true,
+          };
+        }
+        if (account.isKnown) {
+          const nombres = account.candidates.map((c) => c.businessName).join(", ");
+          return {
+            content: `Ya está identificado como ${nombres}; no hace falta el número de cliente.`,
+            isError: true,
+          };
+        }
+
+        const previas = getLinkFailures(context.userId);
+        if (previas >= MAX_LINK_FAILURES) {
+          return {
+            content:
+              "Ya falló demasiadas veces con el número de cliente. No lo intentes otra vez: dile que por seguridad esto lo tiene que ver una persona del equipo y ofrécele el contacto.",
+            isError: true,
+          };
+        }
+
+        const numero = String(args.numero_cliente ?? "").trim();
+        const nombre = String(args.nombre ?? "").trim();
+
+        if (!numero || !nombre) {
+          return {
+            content:
+              "Necesito su número de cliente y su nombre. Pídele lo que falte antes de volver a llamarme.",
+            isError: true,
+          };
+        }
+
+        const matches = await findAccountsByClientNumber(numero);
+
+        if (matches.length === 0) {
+          const fallos = recordLinkFailure(context.userId);
+          const restantes = MAX_LINK_FAILURES - fallos;
+          return {
+            content:
+              `No hay ninguna cuenta con el número de cliente ${numero}. Díselo y pídele que lo verifique en alguna factura o con su asesor. ` +
+              (restantes > 0
+                ? `Le quedan ${restantes} intento(s).`
+                : "Ya no le quedan intentos: de aquí en adelante esto lo tiene que ver una persona del equipo."),
+            isError: true,
+          };
+        }
+
+        let target = matches[0]!;
+
+        if (matches.length > 1) {
+          // Ocho números están repetidos en dos cuentas. Se resuelve con el
+          // nombre del negocio que diga el cliente, no enseñándole la lista:
+          // quien esté probando números no tiene por qué enterarse de quiénes
+          // son nuestros clientes.
+          const negocio = typeof args.negocio === "string" ? args.negocio.trim() : "";
+          if (!negocio) {
+            return {
+              content:
+                `El número ${numero} corresponde a más de una cuenta. Pregúntale el nombre del negocio y vuelve a llamarme con él en 'negocio'. No le enseñes opciones.`,
+              isError: true,
+            };
+          }
+
+          const needle = normalizeName(negocio);
+          const filtered = matches.filter((candidate) => {
+            const name = normalizeName(candidate.businessName);
+            return name.includes(needle) || needle.includes(name);
+          });
+
+          if (filtered.length !== 1) {
+            const fallos = recordLinkFailure(context.userId);
+            const restantes = MAX_LINK_FAILURES - fallos;
+            return {
+              content:
+                `El negocio que dio no corresponde al número ${numero}. Díselo sin darle pistas y pídele que lo verifique. ` +
+                (restantes > 0 ? `Le quedan ${restantes} intento(s).` : "Ya no le quedan intentos."),
+              isError: true,
+            };
+          }
+          target = filtered[0]!;
+        }
+
+        const { contactCreated } = await linkPhoneToAccount({
+          account: target,
+          phone,
+          fullName: nombre,
+        });
+
+        clearLinkFailures(context.userId);
+
+        // El contexto de este turno se resolvió cuando el cliente todavía era
+        // un desconocido. Se refresca en el mismo objeto para que lo que
+        // cotice de aquí en adelante ya salga con sus precios y su almacén.
+        Object.assign(context.account, await resolveAccount(phone));
+
+        void notifyAdminsOfAccountLink({
+          businessName: target.businessName,
+          clientNumber: target.clientNumber,
+          personName: nombre,
+          phone,
+          contactCreated,
+        });
+
+        return {
+          content: JSON.stringify(
+            {
+              identificado: true,
+              negocio: target.businessName,
+              estatus: target.status,
+              almacen: target.warehouse,
+              contacto_nuevo: contactCreated,
+              nota: contactCreated
+                ? "Quedó ligado a la cuenta y registrado como contacto nuevo. Ya puedes cotizarle a su precio."
+                : "Ya estaba en el CRM; sólo se le agregó este teléfono. Ya puedes cotizarle a su precio.",
+            },
+            null,
+            2,
+          ),
+          isError: false,
+        };
+      }
+
       case "enviar_portafolio": {
         const pedida = typeof args.plaza === "string" ? args.plaza.trim() : "";
 
@@ -538,7 +720,11 @@ export async function runTool(
         return { content: `Herramienta desconocida: ${name}`, isError: true };
     }
   } catch (error) {
-    if (error instanceof OrderError || error instanceof ProspectError) {
+    if (
+      error instanceof OrderError ||
+      error instanceof ProspectError ||
+      error instanceof LinkError
+    ) {
       return { content: error.message, isError: true };
     }
     console.error(`[tool:${name}] error inesperado`, error);

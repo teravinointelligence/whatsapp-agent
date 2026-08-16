@@ -47,6 +47,19 @@ const deleteMessages = db.prepare(`DELETE FROM messages WHERE user_id = ?`);
 
 const deleteIdentity = db.prepare(`DELETE FROM identities WHERE user_id = ?`);
 
+const readFailures = db.prepare(
+  `SELECT failures FROM link_attempts WHERE user_id = ?`,
+);
+
+const bumpFailures = db.prepare(`
+  INSERT INTO link_attempts (user_id, failures) VALUES (?, 1)
+  ON CONFLICT (user_id) DO UPDATE SET
+    failures   = link_attempts.failures + 1,
+    updated_at = datetime('now')
+`);
+
+const resetFailures = db.prepare(`DELETE FROM link_attempts WHERE user_id = ?`);
+
 const readOffset = db.prepare(`SELECT offset FROM polling_state WHERE id = 1`);
 
 const writeOffset = db.prepare(`
@@ -118,6 +131,27 @@ export function getTelegramIdsForPhones(phones: string[]): string[] {
   return rows
     .filter((row) => wanted.has(row.phone.replace(/\D/g, "").slice(-10)))
     .map((row) => row.user_id);
+}
+
+/**
+ * Cuántas veces ha fallado este usuario al dar un número de cliente.
+ *
+ * A propósito NO se borra al reiniciar la conversación: si bastara con darle
+ * /reiniciar para reponer los intentos, el tope no serviría de nada.
+ */
+export function getLinkFailures(userId: string): number {
+  const row = readFailures.get(userId) as { failures: number } | undefined;
+  return row?.failures ?? 0;
+}
+
+export function recordLinkFailure(userId: string): number {
+  bumpFailures.run(userId);
+  return getLinkFailures(userId);
+}
+
+/** Se limpia al identificarse bien: los intentos ya cumplieron su función. */
+export function clearLinkFailures(userId: string): void {
+  resetFailures.run(userId);
 }
 
 /** Borra la transcripción de este usuario, conservando su teléfono. */
