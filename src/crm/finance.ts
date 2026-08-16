@@ -161,6 +161,49 @@ export async function getStatement(accountId: string): Promise<Statement> {
   };
 }
 
+/**
+ * Correos registrados de una cuenta, en minúsculas.
+ *
+ * Salen de contacts.email —donde de verdad viven: sólo una cuenta en 464 tiene
+ * billing_email— más ese billing_email cuando existe.
+ */
+export async function accountEmails(accountId: string): Promise<string[]> {
+  const [contacts, account] = await Promise.all([
+    crm.from("contacts").select("email").eq("account_id", accountId),
+    crm.from("accounts").select("billing_email").eq("id", accountId).maybeSingle(),
+  ]);
+
+  if (contacts.error) {
+    throw new FinanceError(`No se pudieron leer los contactos: ${contacts.error.message}`);
+  }
+
+  const values = [
+    ...(contacts.data ?? []).map((row) => row.email as string | null),
+    (account.data?.billing_email as string | null) ?? null,
+  ];
+
+  return [
+    ...new Set(
+      values
+        .filter((value): value is string => Boolean(value?.trim()))
+        .map((value) => value.trim().toLowerCase()),
+    ),
+  ];
+}
+
+/**
+ * Compara el correo que dictó el cliente contra los que tenemos.
+ *
+ * La comparación es exacta salvo mayúsculas y espacios: nada de coincidencias
+ * parciales. Aceptar "compras@" porque se parece a "compras@hotel.com" sería
+ * regalar el filtro.
+ */
+export function emailIsRegistered(provided: string, registered: string[]): boolean {
+  const needle = provided.trim().toLowerCase();
+  if (!needle) return false;
+  return registered.includes(needle);
+}
+
 export interface StatementEmail {
   fecha: string;
   asunto: string | null;

@@ -5,6 +5,7 @@ import {
   linkPhoneToAccount,
   LinkError,
   normalizeName,
+  type LinkableAccount,
 } from "../crm/link.js";
 import {
   clearLinkFailures,
@@ -24,7 +25,13 @@ import {
   type OrderItemInput,
 } from "../crm/orders.js";
 import { searchAccounts, type StaffContext } from "../crm/staff.js";
-import { FinanceError, getStatement, listStatementEmails } from "../crm/finance.js";
+import {
+  accountEmails,
+  emailIsRegistered,
+  FinanceError,
+  getStatement,
+  listStatementEmails,
+} from "../crm/finance.js";
 import { listSampleRequests, SampleError } from "../crm/samples.js";
 import {
   assignProspect,
@@ -32,7 +39,11 @@ import {
   ProspectError,
   registerProspect,
 } from "../crm/prospects.js";
-import { notifyAdminsOfAccountLink, notifyAdminsOfProspect } from "../notify.js";
+import {
+  notifyAdminsOfAccountLink,
+  notifyAdminsOfProspect,
+  notifyAdminsOfStatementRequest,
+} from "../notify.js";
 import { findPortfolios, plazaNames, portfolioForPlaza } from "../portfolio.js";
 
 /**
@@ -242,6 +253,37 @@ export const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: "mi_estado_de_cuenta",
+    description:
+      "Para el CLIENTE que pide su propio saldo o estado de cuenta. Antes de " +
+      "dárselo hay que comprobar quién es: pídele su número de cliente Y un " +
+      "correo que tengamos registrado, y llama a esta herramienta con los dos. " +
+      "Los dos tienen que cuadrar; si no, no se le enseña nada. Nunca le digas " +
+      "cuál es el correo registrado ni le des pistas: es él quien tiene que " +
+      "decirlo. Si se equivoca varias veces, pásalo con el equipo.",
+    input_schema: {
+      type: "object",
+      properties: {
+        numero_cliente: {
+          type: "string",
+          description: "Número de cliente que dio. Ej. '120'.",
+        },
+        correo: {
+          type: "string",
+          description:
+            "Correo que dictó, tal cual. No lo completes ni le corrijas el dominio.",
+        },
+        negocio: {
+          type: "string",
+          description:
+            "Nombre del negocio. Sólo cuando la herramienta te avise que ese " +
+            "número corresponde a más de una cuenta.",
+        },
+      },
+      required: ["numero_cliente", "correo"],
+    },
+  },
+  {
     name: "estado_de_cuenta",
     description:
       "SÓLO para la administradora. Saldo de una cuenta: total, cuánto está " +
@@ -366,11 +408,84 @@ export const tools: Anthropic.Tool[] = [
   },
 ];
 
+interface ToolOutcome {
+  content: string;
+  isError: boolean;
+}
+
+function remainingAttemptsNote(fallos: number): string {
+  const restantes = MAX_LINK_FAILURES - fallos;
+  return restantes > 0
+    ? `Le quedan ${restantes} intento(s).`
+    : "Ya no le quedan intentos: de aquí en adelante esto lo tiene que ver una persona del equipo.";
+}
+
+/**
+ * Resuelve la cuenta a partir del número de cliente que dio la persona.
+ *
+ * La comparten vincular_cuenta y mi_estado_de_cuenta porque el filtro es el
+ * mismo, incluido el tope de intentos: si cada una llevara su propia cuenta de
+ * fallos, se podrían probar números al doble alternando entre las dos.
+ */
+async function accountFromClientNumber(
+  numero: string,
+  negocio: string,
+  userId: string,
+): Promise<{ account: LinkableAccount } | { error: ToolOutcome }> {
+  const matches = await findAccountsByClientNumber(numero);
+
+  if (matches.length === 0) {
+    const fallos = recordLinkFailure(userId);
+    return {
+      error: {
+        content:
+          `No hay ninguna cuenta con el número de cliente ${numero}. Díselo y pídele que lo verifique en alguna factura o con su asesor. ` +
+          remainingAttemptsNote(fallos),
+        isError: true,
+      },
+    };
+  }
+
+  if (matches.length === 1) return { account: matches[0]! };
+
+  // Ocho números están repetidos en dos cuentas. Se resuelve con el nombre del
+  // negocio que diga la persona, no enseñándole la lista: quien esté probando
+  // números no tiene por qué enterarse de quiénes son nuestros clientes.
+  if (!negocio) {
+    return {
+      error: {
+        content: `El número ${numero} corresponde a más de una cuenta. Pregúntale el nombre del negocio y vuelve a llamarme con él en 'negocio'. No le enseñes opciones.`,
+        isError: true,
+      },
+    };
+  }
+
+  const needle = normalizeName(negocio);
+  const filtered = matches.filter((candidate) => {
+    const name = normalizeName(candidate.businessName);
+    return name.includes(needle) || needle.includes(name);
+  });
+
+  if (filtered.length !== 1) {
+    const fallos = recordLinkFailure(userId);
+    return {
+      error: {
+        content:
+          `El negocio que dio no corresponde al número ${numero}. Díselo sin darle pistas y pídele que lo verifique. ` +
+          remainingAttemptsNote(fallos),
+        isError: true,
+      },
+    };
+  }
+
+  return { account: filtered[0]! };
+}
+
 export async function runTool(
   name: string,
   input: unknown,
   context: ToolContext,
-): Promise<{ content: string; isError: boolean }> {
+): Promise<ToolOutcome> {
   const args = (input ?? {}) as Record<string, unknown>;
   const { account, staff, phone } = context;
 
@@ -479,6 +594,104 @@ export async function runTool(
           return { content: "Ninguna cuenta coincide con ese nombre.", isError: false };
         }
         return { content: JSON.stringify(results, null, 2), isError: false };
+      }
+
+      case "mi_estado_de_cuenta": {
+        if (staff) {
+          return {
+            content:
+              "Eres del equipo: para ver el saldo de una cuenta usa estado_de_cuenta.",
+            isError: true,
+          };
+        }
+        if (!phone) {
+          return {
+            content:
+              "Primero necesita compartir su teléfono con el botón; sin eso no atiendo cobranza.",
+            isError: true,
+          };
+        }
+
+        if (getLinkFailures(context.userId) >= MAX_LINK_FAILURES) {
+          return {
+            content:
+              "Ya falló demasiadas veces identificándose. No lo intentes otra vez: dile que por seguridad su estado de cuenta se lo tiene que dar una persona del equipo y ofrécele el contacto.",
+            isError: true,
+          };
+        }
+
+        const numero =
+          typeof args.numero_cliente === "string" ? args.numero_cliente.trim() : "";
+        const correo = typeof args.correo === "string" ? args.correo.trim() : "";
+
+        if (!numero || !correo) {
+          return {
+            content:
+              "Necesito su número de cliente y un correo registrado. Pídele lo que falte antes de volver a llamarme.",
+            isError: true,
+          };
+        }
+
+        const resolved = await accountFromClientNumber(
+          numero,
+          typeof args.negocio === "string" ? args.negocio.trim() : "",
+          context.userId,
+        );
+        if ("error" in resolved) return resolved.error;
+
+        const registrados = await accountEmails(resolved.account.id);
+
+        if (registrados.length === 0) {
+          // No es culpa suya y no cuenta como intento: esa cuenta simplemente
+          // no tiene correos capturados y no hay contra qué comprobar.
+          return {
+            content:
+              "Esa cuenta no tiene ningún correo registrado en el CRM, así que no hay forma de comprobar quién es. Dile que su asesor o la administración se lo hace llegar, y ofrécele el contacto.",
+            isError: true,
+          };
+        }
+
+        if (!emailIsRegistered(correo, registrados)) {
+          const fallos = recordLinkFailure(context.userId);
+          return {
+            content:
+              "Ese correo no está registrado en esa cuenta. Díselo así, sin decirle cuál sí está ni darle pistas, y pídele que use el correo con el que recibe las facturas. " +
+              remainingAttemptsNote(fallos),
+            isError: true,
+          };
+        }
+
+        clearLinkFailures(context.userId);
+
+        const statement = await getStatement(resolved.account.id);
+
+        void notifyAdminsOfStatementRequest({
+          businessName: statement.negocio,
+          clientNumber: statement.numeroCliente,
+          email: correo.toLowerCase(),
+          phone,
+          balance: statement.saldoTotal,
+        });
+
+        return {
+          content: JSON.stringify(
+            {
+              verificado: true,
+              negocio: statement.negocio,
+              dias_credito: statement.diasCredito,
+              saldo_total: statement.saldoTotal,
+              vencido: statement.vencido,
+              por_vencer: statement.porVencer,
+              facturas_abiertas: statement.facturasAbiertas,
+              facturas: statement.facturas.slice(0, 5),
+              ultimo_pago: statement.ultimoPago,
+              nota: "Cifras en pesos, con IVA incluido, tal como se facturaron. Si pide el desglose completo o el PDF, dile que se lo manda la administración por correo.",
+            },
+            null,
+            2,
+          ),
+          isError: false,
+        };
       }
 
       case "estado_de_cuenta": {
@@ -597,55 +810,13 @@ export async function runTool(
           };
         }
 
-        const matches = await findAccountsByClientNumber(numero);
-
-        if (matches.length === 0) {
-          const fallos = recordLinkFailure(context.userId);
-          const restantes = MAX_LINK_FAILURES - fallos;
-          return {
-            content:
-              `No hay ninguna cuenta con el número de cliente ${numero}. Díselo y pídele que lo verifique en alguna factura o con su asesor. ` +
-              (restantes > 0
-                ? `Le quedan ${restantes} intento(s).`
-                : "Ya no le quedan intentos: de aquí en adelante esto lo tiene que ver una persona del equipo."),
-            isError: true,
-          };
-        }
-
-        let target = matches[0]!;
-
-        if (matches.length > 1) {
-          // Ocho números están repetidos en dos cuentas. Se resuelve con el
-          // nombre del negocio que diga el cliente, no enseñándole la lista:
-          // quien esté probando números no tiene por qué enterarse de quiénes
-          // son nuestros clientes.
-          const negocio = typeof args.negocio === "string" ? args.negocio.trim() : "";
-          if (!negocio) {
-            return {
-              content:
-                `El número ${numero} corresponde a más de una cuenta. Pregúntale el nombre del negocio y vuelve a llamarme con él en 'negocio'. No le enseñes opciones.`,
-              isError: true,
-            };
-          }
-
-          const needle = normalizeName(negocio);
-          const filtered = matches.filter((candidate) => {
-            const name = normalizeName(candidate.businessName);
-            return name.includes(needle) || needle.includes(name);
-          });
-
-          if (filtered.length !== 1) {
-            const fallos = recordLinkFailure(context.userId);
-            const restantes = MAX_LINK_FAILURES - fallos;
-            return {
-              content:
-                `El negocio que dio no corresponde al número ${numero}. Díselo sin darle pistas y pídele que lo verifique. ` +
-                (restantes > 0 ? `Le quedan ${restantes} intento(s).` : "Ya no le quedan intentos."),
-              isError: true,
-            };
-          }
-          target = filtered[0]!;
-        }
+        const resolved = await accountFromClientNumber(
+          numero,
+          typeof args.negocio === "string" ? args.negocio.trim() : "",
+          context.userId,
+        );
+        if ("error" in resolved) return resolved.error;
+        const target = resolved.account;
 
         const { contactCreated } = await linkPhoneToAccount({
           account: target,

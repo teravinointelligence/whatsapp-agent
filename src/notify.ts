@@ -63,6 +63,37 @@ export async function notifyAdminsOfProspect(prospect: Prospect): Promise<void> 
 }
 
 /**
+ * Aviso de que un cliente consultó su propio estado de cuenta.
+ *
+ * Se avisa siempre, aunque haya pasado el filtro: el saldo es información
+ * sensible y conviene que quede a la vista de quién lo pidió y desde qué
+ * número, no sólo en los logs del servidor.
+ */
+export async function notifyAdminsOfStatementRequest(request: {
+  businessName: string;
+  clientNumber: string | null;
+  email: string;
+  phone: string;
+  balance: number;
+}): Promise<void> {
+  const saldo = request.balance.toLocaleString("es-MX", {
+    style: "currency",
+    currency: "MXN",
+  });
+
+  await tellAdmins(
+    [
+      "📄 <b>Un cliente consultó su estado de cuenta</b>",
+      "",
+      `<b>${request.businessName}</b>${request.clientNumber ? ` (cliente ${request.clientNumber})` : ""}`,
+      `Se identificó con: ${request.email}`,
+      `Teléfono: ${request.phone}`,
+      `Saldo que se le informó: ${saldo}`,
+    ].join("\n"),
+  );
+}
+
+/**
  * Aviso de que un teléfono se ligó solo a una cuenta dando su número de
  * cliente.
  *

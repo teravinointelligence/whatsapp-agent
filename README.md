@@ -48,6 +48,7 @@ buscar_productos  crear_pedido  consultar_pedidos
 | `crear_pedido` | Crea el pedido en `orders`/`order_items` como borrador |
 | `consultar_pedidos` | Pedidos recientes de las cuentas de ese cliente |
 | `vincular_cuenta` | Liga el teléfono a una cuenta existente contra su número de cliente |
+| `mi_estado_de_cuenta` | Le da su saldo al cliente que se identifica con número + correo |
 | `enviar_portafolio` | Devuelve el link del portafolio digital de la plaza del cliente |
 | `registrar_prospecto` | Captura en `prospects` a quien no es cliente todavía, con su correo |
 | `buscar_cuenta` | **Sólo administración**: busca cuentas por nombre o número de cliente |
@@ -129,6 +130,44 @@ desde el siguiente mensaje se le reconoce solo
 > precios ya son públicos en el portafolio. Si se quiere apretar, el siguiente
 > paso barato es pedirle también el nombre del negocio siempre, no sólo cuando el
 > número está repetido.
+
+### El cliente que pide su propio estado de cuenta
+
+Un saldo no se le enseña a cualquiera, así que hay dos datos de por medio: el
+**número de cliente** y un **correo que ya esté registrado** en esa cuenta.
+
+```
+"¿me das mi estado de cuenta?"
+     │  ¿número de cliente?  →  accounts.client_number
+     │  ¿correo?             →  contacts.email de ESA cuenta
+     ▼
+los dos cuadran  ──►  saldo, vencido y facturas abiertas en el chat
+                 └──►  aviso a la administración de quién lo pidió
+```
+
+- **La comparación del correo es exacta**, salvo mayúsculas y espacios. Nada de
+  coincidencias parciales: aceptar `compras@` porque se parece a
+  `compras@hotel.com` sería regalar el filtro.
+- **Nunca se le dice cuál es el correo registrado**, ni se le confirma si le
+  atinó a una parte, ni se le dan pistas. Lo dice completo o no pasa.
+- **Comparte el tope de tres intentos con `vincular_cuenta`**, a propósito: si
+  cada una llevara su propio contador, se podrían probar números al doble
+  alternando entre las dos.
+- **Si la cuenta no tiene ningún correo capturado** no se puede comprobar nada, y
+  eso no cuenta como intento fallido: se le dice que la administración se lo hace
+  llegar.
+- **Cada consulta te llega por Telegram** con el negocio, el correo con el que se
+  identificó, el teléfono y el saldo que se le informó.
+
+> **Alcance real del filtro.** Sólo **151 de 464 cuentas** tienen número de
+> cliente *y* algún correo capturado; al resto hay que mandarlos con una persona.
+> Y el par número + correo es más débil de lo que parece cuando el correo es del
+> tipo `compras@hotel.com`, que se adivina: lo que de verdad cerraría el paso es
+> mandar el estado de cuenta **al correo registrado** en vez de enseñarlo en el
+> chat. Eso hoy no se puede desde aquí — los correos los manda el CRM con Resend
+> y este bot no tiene ni la llave ni la plantilla.
+
+El PDF y el desglose completo los sigue mandando la administración desde el CRM.
 
 ### Prospectos
 
