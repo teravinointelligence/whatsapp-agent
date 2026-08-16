@@ -1,4 +1,6 @@
 import { respondTo } from "../agent/agent.js";
+import { tools } from "../agent/tools.js";
+import { RUNNING_COMMIT } from "../version.js";
 import {
   appendMessage,
   claimUpdate,
@@ -33,6 +35,16 @@ function handleCommand(message: IncomingMessage): string | null {
       // verificado: volver a pedirlo sería molesto y no aporta nada.
       clearHistory(message.userId);
       return "Empecemos de nuevo.";
+
+    case "/version":
+    case "/versión":
+      // No pasa por el modelo: la pregunta es qué código está corriendo, y el
+      // modelo no tiene forma de saberlo.
+      return (
+        `Código en memoria: ${RUNNING_COMMIT}\n` +
+        `Herramientas cargadas: ${tools.length}.\n` +
+        "Si esto no coincide con lo último que jalaste, falta reiniciar el proceso."
+      );
 
     case "/reiniciar":
     case "/reset":

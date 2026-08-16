@@ -431,6 +431,11 @@ SQLite necesita disco persistente — Railway o Fly.io funcionan sin ajustes.
   escapa completo y sólo se reponen `<b>` e `<i>`; cualquier otra etiqueta llega
   como texto plano. El prompt le indica al modelo que no use asteriscos, que en
   Telegram se verían literales.
+- **`/version`**: el bot contesta con el commit que tiene en memoria y cuántas
+  herramientas cargó. Como corre en la máquina de alguien más, lo primero que hay
+  que descartar cuando "no puede" algo que ya se programó es que el proceso siga
+  con el código de antes del último `git pull`. El dato se lee al arrancar, así
+  que un pull sin reiniciar sigue reportando la verdad de lo que está en memoria.
 - **Deduplicación**: por `update_id`, tanto en polling como en webhook.
 - **Tandas encoladas**: si el bot estuvo caído, Telegram le entrega de golpe
   todo lo que se acumuló. De cada persona se contesta **sólo su último mensaje**;
