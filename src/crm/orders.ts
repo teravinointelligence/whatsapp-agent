@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { crm } from "./client.js";
 import { getProductBySku } from "./catalog.js";
 import { findCandidate, type AccountCandidate, type AccountContext } from "./accounts.js";
+import { createOrderTask } from "./tasks.js";
 
 export class OrderError extends Error {}
 
@@ -20,6 +21,11 @@ export interface CreatedOrder {
   subtotal: number;
   iva: number;
   total: number;
+  /** Cuenta a la que quedó, para el aviso a la administración. */
+  cuentaId: string;
+  negocio: string;
+  /** true si le quedó la tarea al vendedor asignado en el CRM. */
+  avisoAlVendedor: boolean;
   partidas: Array<{
     sku: string | null;
     nombre: string;
@@ -205,6 +211,19 @@ export async function createOrder(input: CreateOrderInput): Promise<CreatedOrder
     );
   }
 
+  const botellas = lines.reduce((sum, line) => sum + line.quantity, 0);
+
+  // El pedido ya existe; el aviso es aparte y no puede tumbarlo.
+  const avisoAlVendedor = await createOrderTask({
+    repId: target.assignedRepId,
+    accountId: target.id,
+    businessName: target.businessName,
+    orderId: order.id as string,
+    folio: order.order_number as string,
+    total,
+    botellas,
+  });
+
   return {
     folio: order.order_number as string,
     estado: order.status as string,
@@ -212,6 +231,9 @@ export async function createOrder(input: CreateOrderInput): Promise<CreatedOrder
     subtotal,
     iva,
     total,
+    cuentaId: target.id,
+    negocio: target.businessName,
+    avisoAlVendedor,
     partidas: lines.map((line) => ({
       sku: line.sku,
       nombre: line.product_name,

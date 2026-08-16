@@ -41,6 +41,7 @@ import {
 } from "../crm/prospects.js";
 import {
   notifyAdminsOfAccountLink,
+  notifyAdminsOfOrder,
   notifyAdminsOfProspect,
   notifyAdminsOfStatementRequest,
 } from "../notify.js";
@@ -540,7 +541,28 @@ export async function runTool(
           accountId: typeof args.cuenta_id === "string" ? args.cuenta_id : undefined,
         });
 
-        return { content: JSON.stringify(order, null, 2), isError: false };
+        void notifyAdminsOfOrder({
+          folio: order.folio,
+          businessName: order.negocio,
+          total: order.total,
+          botellas: order.partidas.reduce((sum, line) => sum + line.cantidad, 0),
+          warehouse: order.almacen,
+          repNotified: order.avisoAlVendedor,
+        });
+
+        return {
+          content: JSON.stringify(
+            {
+              ...order,
+              nota: order.avisoAlVendedor
+                ? "Su vendedor ya tiene la tarea de revisarlo en el CRM."
+                : "Esta cuenta no tiene vendedor asignado; se avisó a la administración.",
+            },
+            null,
+            2,
+          ),
+          isError: false,
+        };
       }
 
       case "consultar_pedidos": {

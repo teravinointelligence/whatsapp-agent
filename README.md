@@ -330,6 +330,29 @@ Entran a `orders` con `status = 'borrador'`, `order_type = 'whatsapp'` y el
 `sales_rep_id` de la cuenta, con folio `COT-2026-NNNN`. El vendedor los revisa en
 TERAVINO Flow antes de aceptarlos. Si fallan las partidas, el encabezado se borra.
 
+**Y el pedido avisa que existe.** Ese es el punto del canal: el cliente puede
+pedir aunque su vendedora esté de vacaciones, en ruta o sea domingo, pero un
+borrador que nadie mira no sirve de nada. Al crearse:
+
+1. Le queda una **tarea al vendedor asignado** en `rep_tasks`, con prioridad 100 y
+   para hoy: *"Revisar pedido COT-2026-0085 de Montage Hotels (Telegram)"*.
+2. **La administración recibe un aviso por Telegram**, porque el caso que este
+   canal atiende es justo que el vendedor no esté disponible.
+
+Si la cuenta no tiene vendedor asignado —25 cuentas activas— no hay tarea que
+crear y el aviso a la administración es el único; el mensaje lo dice con una
+advertencia en vez de callárselo.
+
+> `rep_tasks.source` tiene un CHECK que sólo acepta `prospecto`, `cobranza`,
+> `inactivo` y `manual`, así que la tarea entra como `manual` —lo que más se le
+> parece— con el canal real en `meta.canal` y "(Telegram)" en el título. Se evitó
+> agregar un valor nuevo al CHECK porque el CRM tiene su propio mapa de etiquetas
+> por `source` y un valor desconocido se vería en blanco. Si algún día se quiere
+> `source = 'telegram'` de verdad, hay que tocar las dos partes.
+
+Ninguno de estos avisos puede tumbar el pedido: si fallan, quedan en el log y el
+pedido sigue en pie.
+
 ---
 
 ## Puesta en marcha

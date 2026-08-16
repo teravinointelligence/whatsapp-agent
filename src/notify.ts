@@ -63,6 +63,42 @@ export async function notifyAdminsOfProspect(prospect: Prospect): Promise<void> 
 }
 
 /**
+ * Aviso de que entró un pedido por el canal.
+ *
+ * El pedido ya le dejó tarea a su vendedor en el CRM, pero justamente el caso
+ * que este canal atiende es que el vendedor no esté disponible —vacaciones, día
+ * de descanso, ruta—, así que la administración se entera también y puede
+ * cubrirlo. Cuando la cuenta no tiene vendedor asignado, este aviso es el único.
+ */
+export async function notifyAdminsOfOrder(order: {
+  folio: string;
+  businessName: string;
+  total: number;
+  botellas: number;
+  warehouse: string;
+  repNotified: boolean;
+}): Promise<void> {
+  const total = order.total.toLocaleString("es-MX", {
+    style: "currency",
+    currency: "MXN",
+  });
+
+  await tellAdmins(
+    [
+      "🧾 <b>Pedido nuevo por Telegram</b>",
+      "",
+      `<b>${order.businessName}</b>`,
+      `Folio ${order.folio} · ${order.botellas} botellas · ${total} con IVA`,
+      `Almacén: ${order.warehouse}`,
+      "",
+      order.repNotified
+        ? "Ya le quedó la tarea de revisarlo a su vendedor en el CRM."
+        : "⚠️ Esta cuenta no tiene vendedor asignado: nadie más recibió el aviso.",
+    ].join("\n"),
+  );
+}
+
+/**
  * Aviso de que un cliente consultó su propio estado de cuenta.
  *
  * Se avisa siempre, aunque haya pasado el filtro: el saldo es información
