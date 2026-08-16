@@ -375,6 +375,11 @@ SQLite necesita disco persistente — Railway o Fly.io funcionan sin ajustes.
   como texto plano. El prompt le indica al modelo que no use asteriscos, que en
   Telegram se verían literales.
 - **Deduplicación**: por `update_id`, tanto en polling como en webhook.
+- **Tandas encoladas**: si el bot estuvo caído, Telegram le entrega de golpe
+  todo lo que se acumuló. De cada persona se contesta **sólo su último mensaje**;
+  los anteriores se guardan en el historial y el agente responde a todo junto.
+  Sin esto, volver de una caída le suelta al cliente una ráfaga de respuestas
+  sueltas y desordenadas, una por mensaje.
 - **Offset del polling**: se persiste, así que un reinicio no reprocesa la cola.
 - **Sólo chats privados**: en grupos el bot vería mensajes de terceros y no
   podría saber a nombre de quién actúa, así que los ignora.
