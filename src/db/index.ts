@@ -11,30 +11,45 @@ db.pragma("journal_mode = WAL");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS conversations (
-    phone        TEXT PRIMARY KEY,
-    profile_name TEXT,
+    user_id      TEXT PRIMARY KEY,
+    display_name TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE TABLE IF NOT EXISTS messages (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    phone      TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
     role       TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content    TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE INDEX IF NOT EXISTS idx_messages_phone ON messages (phone, id);
+  CREATE INDEX IF NOT EXISTS idx_messages_user ON messages (user_id, id);
 
-  -- Deduplica los reintentos del webhook de Meta, que reenvía el mismo
-  -- message_id si no respondemos 200 a tiempo.
-  CREATE TABLE IF NOT EXISTS processed_messages (
-    message_id   TEXT PRIMARY KEY,
+  -- Telegram no expone el teléfono: el usuario lo comparte con un botón y
+  -- aquí guardamos la equivalencia para no volvérselo a pedir.
+  CREATE TABLE IF NOT EXISTS identities (
+    user_id     TEXT PRIMARY KEY,
+    phone       TEXT NOT NULL,
+    shared_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_identities_phone ON identities (phone);
+
+  -- Deduplica reintentos: el webhook de Telegram reenvía el update si no
+  -- respondemos 200, y el long polling los repite si no confirmamos el offset.
+  CREATE TABLE IF NOT EXISTS processed_updates (
+    update_id    INTEGER PRIMARY KEY,
     processed_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  -- Offset confirmado del long polling, para no reprocesar tras un reinicio.
+  CREATE TABLE IF NOT EXISTS polling_state (
+    id     INTEGER PRIMARY KEY CHECK (id = 1),
+    offset INTEGER NOT NULL
+  );
 `);
 
 // Los pedidos, el catálogo y las cuentas viven en el CRM (Supabase). Aquí sólo
-// queda el estado propio del canal de WhatsApp: transcripción y deduplicación.
+// queda el estado propio del canal: transcripción, identidades y deduplicación.

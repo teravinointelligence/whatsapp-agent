@@ -17,16 +17,21 @@ function optional(name: string, fallback: string): string {
 export const config = {
   port: Number(optional("PORT", "3000")),
 
-  whatsapp: {
-    /** Token de acceso permanente del System User de Meta. */
-    token: required("WHATSAPP_TOKEN"),
-    /** ID del número de teléfono emisor (no el número en sí). */
-    phoneNumberId: required("WHATSAPP_PHONE_NUMBER_ID"),
-    /** Cadena que tú inventas y registras en Meta al configurar el webhook. */
-    verifyToken: required("WHATSAPP_VERIFY_TOKEN"),
-    /** App Secret de la app de Meta, para validar la firma X-Hub-Signature-256. */
-    appSecret: required("WHATSAPP_APP_SECRET"),
-    graphVersion: optional("WHATSAPP_GRAPH_VERSION", "v21.0"),
+  telegram: {
+    /** Token que te da @BotFather al crear el bot. */
+    token: required("TELEGRAM_BOT_TOKEN"),
+    /** 'polling' no necesita dominio público; 'webhook' sí. */
+    mode: optional("TELEGRAM_MODE", "polling") as "polling" | "webhook",
+    /** Sólo en modo webhook: URL pública HTTPS donde escucha este servidor. */
+    webhookUrl: process.env.TELEGRAM_WEBHOOK_URL ?? "",
+    /**
+     * Sólo en modo webhook: cadena que tú inventas. Telegram la reenvía en el
+     * encabezado X-Telegram-Bot-Api-Secret-Token y así verificamos que el POST
+     * viene de Telegram y no de cualquiera que adivine la URL.
+     */
+    webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET ?? "",
+    /** Segundos que el long polling deja la conexión abierta esperando. */
+    pollTimeout: Number(optional("TELEGRAM_POLL_TIMEOUT", "30")),
   },
 
   anthropic: {

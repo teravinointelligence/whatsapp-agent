@@ -1,76 +1,52 @@
 import express, { type Request, type Response } from "express";
 import { config } from "./config.js";
-import { respondTo } from "./agent/agent.js";
-import { markAsRead, sendText } from "./whatsapp/client.js";
-import {
-  parseMessages,
-  router as webhookRouter,
-  verifySignature,
-} from "./whatsapp/webhook.js";
-import { claimMessage, touchConversation } from "./data/conversations.js";
-import type { IncomingMessage, WhatsAppWebhookBody } from "./whatsapp/types.js";
+import { getMe, setWebhook } from "./telegram/client.js";
+import { startPolling } from "./telegram/polling.js";
+import { router as telegramRouter } from "./telegram/webhook.js";
 
-const app = express();
+async function main(): Promise<void> {
+  const me = await getMe();
+  console.log(`Bot conectado: @${me.username ?? me.id}`);
 
-// Guardamos el cuerpo crudo: la firma de Meta se calcula sobre esos bytes.
-app.use(
-  express.json({
-    verify: (req, _res, buf) => {
-      (req as Request & { rawBody?: Buffer }).rawBody = buf;
-    },
-  }),
-);
+  if (config.telegram.mode === "webhook") {
+    if (!config.telegram.webhookUrl || !config.telegram.webhookSecret) {
+      throw new Error(
+        "En modo webhook necesitas TELEGRAM_WEBHOOK_URL y TELEGRAM_WEBHOOK_SECRET.",
+      );
+    }
 
-app.get("/health", (_req: Request, res: Response) => {
-  res.json({ ok: true });
-});
+    const app = express();
+    app.use(express.json());
 
-app.use(webhookRouter);
+    app.get("/health", (_req: Request, res: Response) => {
+      res.json({ ok: true, mode: "webhook" });
+    });
 
-app.post("/webhook", (req: Request, res: Response) => {
-  const raw = (req as Request & { rawBody?: Buffer }).rawBody;
+    app.use(telegramRouter);
 
-  if (!raw || !verifySignature(raw, req.get("x-hub-signature-256"))) {
-    res.sendStatus(401);
+    app.listen(config.port, () => {
+      console.log(`Escuchando en el puerto ${config.port}`);
+    });
+
+    await setWebhook(config.telegram.webhookUrl, config.telegram.webhookSecret);
+    console.log(`Webhook registrado en ${config.telegram.webhookUrl}`);
     return;
   }
 
-  // Meta reintenta el webhook si tardamos en contestar, así que confirmamos
-  // de inmediato y procesamos en segundo plano.
-  res.sendStatus(200);
+  // Modo polling: no necesita servidor, pero levantamos /health para que las
+  // plataformas de despliegue puedan comprobar que el proceso sigue vivo.
+  const app = express();
+  app.get("/health", (_req: Request, res: Response) => {
+    res.json({ ok: true, mode: "polling" });
+  });
+  app.listen(config.port, () => {
+    console.log(`Health check en el puerto ${config.port}`);
+  });
 
-  const messages = parseMessages(req.body as WhatsAppWebhookBody);
-  for (const message of messages) {
-    void handleMessage(message);
-  }
-});
-
-async function handleMessage(message: IncomingMessage): Promise<void> {
-  // Si el webhook llega duplicado, sólo la primera copia se procesa.
-  if (!claimMessage(message.messageId)) return;
-
-  touchConversation(message.from, message.profileName);
-
-  try {
-    await markAsRead(message.messageId).catch((error: unknown) => {
-      // No es crítico: si falla, seguimos con la respuesta.
-      console.warn("[whatsapp] no se pudo marcar como leído:", error);
-    });
-
-    const reply = await respondTo(message.from, message.text);
-    await sendText(message.from, reply);
-  } catch (error) {
-    console.error(`[agent] fallo atendiendo a ${message.from}:`, error);
-    await sendText(
-      message.from,
-      "Tuvimos un problema técnico atendiendo tu mensaje. ¿Nos lo repites en un momento?",
-    ).catch((sendError: unknown) => {
-      console.error("[whatsapp] tampoco se pudo avisar del error:", sendError);
-    });
-  }
+  await startPolling();
 }
 
-app.listen(config.port, () => {
-  console.log(`Agente de WhatsApp escuchando en el puerto ${config.port}`);
-  console.log(`Webhook: POST /webhook  ·  Verificación: GET /webhook`);
+main().catch((error: unknown) => {
+  console.error("No se pudo arrancar:", error);
+  process.exit(1);
 });

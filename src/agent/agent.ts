@@ -1,18 +1,30 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { config } from "../config.js";
+import { config, DEFAULT_PRICE_TIER, DEFAULT_WAREHOUSE } from "../config.js";
 import { accountContextBlock, SYSTEM_PROMPT } from "./prompt.js";
 import { runTool, tools, type ToolContext } from "./tools.js";
-import { resolveAccount } from "../crm/accounts.js";
+import { resolveAccount, type AccountContext } from "../crm/accounts.js";
 import {
   appendMessage,
+  getDisplayName,
   getHistory,
-  getProfileName,
+  getPhoneFor,
 } from "../data/conversations.js";
 
 const client = new Anthropic({ apiKey: config.anthropic.apiKey });
 
 /** Tope de vueltas del bucle para que un modelo atorado no gire sin fin. */
 const MAX_TURNS = 8;
+
+/** Contexto vacío para quien todavía no comparte su teléfono. */
+const NO_ACCOUNT: AccountContext = {
+  candidates: [],
+  accountId: null,
+  warehouse: DEFAULT_WAREHOUSE,
+  priceTier: DEFAULT_PRICE_TIER,
+  isKnown: false,
+  isAmbiguous: false,
+  conflictingTerms: false,
+};
 
 function extractText(content: Anthropic.ContentBlock[]): string {
   return content
@@ -22,16 +34,25 @@ function extractText(content: Anthropic.ContentBlock[]): string {
     .trim();
 }
 
-/**
- * Corre el bucle agéntico para un mensaje entrante y devuelve el texto a enviar
- * por WhatsApp. El historial se persiste antes y después, de modo que un fallo
- * a media conversación no pierde lo que el cliente ya escribió.
- */
-export async function respondTo(phone: string, userText: string): Promise<string> {
-  appendMessage(phone, "user", userText);
+export interface AgentReply {
+  text: string;
+  /** true cuando conviene mostrar el botón para compartir el teléfono. */
+  needsPhone: boolean;
+}
 
-  const profileName = getProfileName(phone);
-  const history = getHistory(phone);
+/**
+ * Corre el bucle agéntico para un mensaje entrante y devuelve el texto a
+ * enviar. El historial se persiste antes y después, de modo que un fallo a
+ * media conversación no pierde lo que el cliente ya escribió.
+ */
+export async function respondTo(
+  userId: string,
+  userText: string,
+): Promise<AgentReply> {
+  appendMessage(userId, "user", userText);
+
+  const displayName = getDisplayName(userId);
+  const history = getHistory(userId);
 
   // Al recortar el historial puede quedar un mensaje del asistente al inicio;
   // la API exige que el primer turno sea del usuario.
@@ -45,21 +66,23 @@ export async function respondTo(phone: string, userText: string): Promise<string
   }));
 
   // Quién es el cliente se resuelve aquí, contra el CRM, y no se le pregunta
-  // al modelo: así el agente no puede operar sobre otra cuenta.
-  const account = await resolveAccount(phone);
+  // al modelo: así el agente no puede operar sobre otra cuenta. En Telegram
+  // el teléfono sólo existe si la persona lo compartió antes.
+  const phone = getPhoneFor(userId);
+  const account = phone ? await resolveAccount(phone) : NO_ACCOUNT;
 
   // El contexto de la cuenta es variable por cliente: va pegado al último turno
   // del usuario y no al system prompt, para no invalidar el prefijo cacheado.
   const last = messages[messages.length - 1];
   if (last && last.role === "user" && typeof last.content === "string") {
-    const notes = [accountContextBlock(account)];
-    if (profileName && !account.candidates[0]?.contactName) {
-      notes.push(`<contexto>Perfil de WhatsApp: "${profileName}".</contexto>`);
+    const notes = [accountContextBlock(account, phone !== null)];
+    if (displayName && !account.candidates[0]?.contactName) {
+      notes.push(`<contexto>Nombre en Telegram: "${displayName}".</contexto>`);
     }
     last.content = `${last.content}\n\n${notes.join("\n")}`;
   }
 
-  const context: ToolContext = { phone, account };
+  const context: ToolContext = { account };
   let reply = "";
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -103,7 +126,7 @@ export async function respondTo(phone: string, userText: string): Promise<string
       (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
     );
 
-    // Las herramientas son consultas locales, así que corren en paralelo y
+    // Las herramientas son consultas al CRM, así que corren en paralelo y
     // todos los resultados vuelven en un solo turno de usuario.
     const results = await Promise.all(
       toolUses.map(async (block) => {
@@ -125,6 +148,7 @@ export async function respondTo(phone: string, userText: string): Promise<string
       "Perdón, se me complicó procesar eso. ¿Me lo repites o prefieres que te contacte alguien del equipo?";
   }
 
-  appendMessage(phone, "assistant", reply);
-  return reply;
+  appendMessage(userId, "assistant", reply);
+
+  return { text: reply, needsPhone: phone === null };
 }

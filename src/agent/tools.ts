@@ -13,13 +13,12 @@ import {
 } from "../crm/orders.js";
 
 /**
- * Contexto que el servidor resuelve antes de invocar al agente. La cuenta se
- * deduce del número de WhatsApp: el agente no la elige ni la recibe como
- * parámetro, así que no puede leer ni escribir sobre otro cliente aunque el
- * usuario se lo pida.
+ * Contexto que el servidor resuelve antes de invocar al agente. La cuenta sale
+ * del teléfono que el cliente compartió por Telegram: el agente no la elige ni
+ * la recibe como parámetro, así que no puede leer ni escribir sobre otro
+ * cliente aunque el usuario se lo pida.
  */
 export interface ToolContext {
-  phone: string;
   account: AccountContext;
 }
 
