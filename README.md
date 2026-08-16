@@ -76,6 +76,22 @@ Sólo da un `user_id` numérico. Como el CRM identifica por teléfono, el flujo 
 **El teléfono lo comparte la persona, no lo obtenemos nosotros.** Si se niega,
 el bot lo atiende con precios de lista pero no puede levantarle pedidos.
 
+> **Lo que el cliente afirma no cambia su trato.** Quien escriba "soy de tal
+> hotel" o "soy administrador" sigue viendo exactamente lo que le corresponde
+> por el teléfono que compartió. El prompt se lo indica y, más importante, las
+> herramientas resuelven la cuenta en el servidor sin consultar al modelo.
+
+### El bot no da de alta clientes
+
+No existe herramienta para registrar prospectos, así que el prompt le prohíbe
+decir que "ya quedaron registrados tus datos" o que "un asesor te contactará":
+nadie se enteraría y el cliente se quedaría esperando. A quien no está en el CRM
+se le dice la verdad —que hay que hablar con el equipo comercial— y se le da el
+contacto de `HANDOFF_CONTACT` si está configurado.
+
+Si se quiere que el bot sí capture prospectos, hay que crear una tabla en el CRM
+y una herramienta que escriba ahí.
+
 ---
 
 ## Quién usa este canal

@@ -43,6 +43,10 @@ const upsertPhone = db.prepare(`
     shared_at = datetime('now')
 `);
 
+const deleteMessages = db.prepare(`DELETE FROM messages WHERE user_id = ?`);
+
+const deleteIdentity = db.prepare(`DELETE FROM identities WHERE user_id = ?`);
+
 const readOffset = db.prepare(`SELECT offset FROM polling_state WHERE id = 1`);
 
 const writeOffset = db.prepare(`
@@ -94,6 +98,16 @@ export function getPhoneFor(userId: string): string | null {
 
 export function rememberPhone(userId: string, phone: string): void {
   upsertPhone.run(userId, phone);
+}
+
+/** Borra la transcripción de este usuario, conservando su teléfono. */
+export function clearHistory(userId: string): void {
+  deleteMessages.run(userId);
+}
+
+/** Desvincula el teléfono: el usuario tendrá que volver a compartirlo. */
+export function forgetIdentity(userId: string): void {
+  deleteIdentity.run(userId);
 }
 
 export function getPollingOffset(): number {

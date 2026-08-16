@@ -1,6 +1,8 @@
 import { respondTo } from "../agent/agent.js";
 import {
   claimUpdate,
+  clearHistory,
+  forgetIdentity,
   getPhoneFor,
   rememberPhone,
   touchConversation,
@@ -14,6 +16,35 @@ import type { IncomingMessage } from "./types.js";
  */
 const SHARED_PHONE_NOTE = "(el cliente acaba de compartir su número de teléfono)";
 
+/**
+ * Comandos que resuelve el servidor, sin pasar por el modelo.
+ *
+ * El modelo no puede olvidar por su cuenta: el historial se le vuelve a mandar
+ * completo en cada turno, así que "olvida lo que te dije" no funciona. Borrarlo
+ * tiene que ser una operación del servidor.
+ */
+function handleCommand(message: IncomingMessage): string | null {
+  const command = message.text.split(/\s+/)[0]?.toLowerCase() ?? "";
+
+  switch (command) {
+    case "/start":
+      // Arranca de cero la conversación pero conserva el teléfono ya
+      // verificado: volver a pedirlo sería molesto y no aporta nada.
+      clearHistory(message.userId);
+      return "Empecemos de nuevo.";
+
+    case "/reiniciar":
+    case "/reset":
+      // Además desvincula el número, para cuando se compartió el equivocado.
+      clearHistory(message.userId);
+      forgetIdentity(message.userId);
+      return "Listo, borré la conversación y tu número. Empecemos de cero.";
+
+    default:
+      return null;
+  }
+}
+
 export async function handleMessage(message: IncomingMessage): Promise<void> {
   // Si el update llega duplicado, sólo la primera copia se procesa.
   if (!claimUpdate(message.updateId)) return;
@@ -26,7 +57,8 @@ export async function handleMessage(message: IncomingMessage): Promise<void> {
     rememberPhone(message.userId, message.sharedPhone);
   }
 
-  const text = message.text || (message.sharedPhone ? SHARED_PHONE_NOTE : "");
+  const command = handleCommand(message);
+  const text = command ?? message.text ?? (message.sharedPhone ? SHARED_PHONE_NOTE : "");
   if (!text) return;
 
   try {
