@@ -40,7 +40,7 @@ export interface CreatedOrder {
 }
 
 /**
- * Genera el siguiente folio con el formato que ya usa el CRM: COT-2026-0085.
+ * Genera el siguiente folio con el formato que ya usa el CRM: PED-2026-0050.
  *
  * Hay una carrera teórica si dos pedidos se crean en el mismo instante; con el
  * volumen actual (84 pedidos históricos) no compensa un contador transaccional.
@@ -182,14 +182,14 @@ export async function createOrder(input: CreateOrderInput): Promise<CreatedOrder
       order_number: orderNumber,
       account_id: target.id,
       sales_rep_id: target.assignedRepId,
-      order_type: "whatsapp",
+      order_type: config.crm.orderType,
       status: config.crm.orderStatus,
       order_date: new Date().toISOString().slice(0, 10),
       subtotal,
       iva,
       total,
       warehouse: target.warehouse,
-      notes: [input.notes, "Levantado por el agente de WhatsApp."]
+      notes: [input.notes, "Levantado por el cliente desde Telegram."]
         .filter(Boolean)
         .join(" · "),
     })
@@ -251,7 +251,7 @@ export async function createOrder(input: CreateOrderInput): Promise<CreatedOrder
 }
 
 const ORDER_COLUMNS =
-  "order_number, status, order_date, total, warehouse, accounts(business_name), order_items(product_name, quantity, unit_price)";
+  "order_number, order_type, status, order_date, total, warehouse, accounts(business_name), order_items(product_name, quantity, unit_price)";
 
 /**
  * En qué va cada estatus, dicho para el cliente.
@@ -272,6 +272,8 @@ const ORDER_STAGE: Record<string, string> = {
 
 export interface OrderSummary {
   folio: string | null;
+  /** 'cotizacion' o 'pedido': en el CRM no son lo mismo y no hay que confundirlos. */
+  tipo: string | null;
   negocio: string | null;
   fecha: string | null;
   estatus: string | null;
@@ -293,6 +295,7 @@ function hydrateOrder(row: Record<string, unknown>): OrderSummary {
 
   return {
     folio: (row.order_number as string | null) ?? null,
+    tipo: (row.order_type as string | null) ?? null,
     negocio: account?.business_name ?? null,
     fecha: (row.order_date as string | null) ?? null,
     estatus: status,

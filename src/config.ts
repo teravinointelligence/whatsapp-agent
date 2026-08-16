@@ -56,8 +56,16 @@ export const config = {
     serviceKey: required("SUPABASE_SERVICE_ROLE_KEY"),
     /** Estatus con el que entran los pedidos levantados por el bot. */
     orderStatus: optional("ORDER_STATUS", "borrador"),
-    /** Prefijo del folio, para distinguirlos en el CRM. */
-    orderPrefix: optional("ORDER_PREFIX", "COT"),
+    /**
+     * El CRM distingue dos documentos y no son lo mismo: 'cotizacion' con folio
+     * COT-2026-NNNN es lo que arma un vendedor para que el cliente lo piense, y
+     * 'pedido' con folio PED-2026-NNNN es mercancía que alguien ya pidió.
+     *
+     * Lo que levanta el bot es un pedido —el cliente ya confirmó productos y
+     * cantidades— que entra en borrador para que su vendedor lo acepte.
+     */
+    orderType: optional("ORDER_TYPE", "pedido"),
+    orderPrefix: optional("ORDER_PREFIX", "PED"),
   },
 
   business: {

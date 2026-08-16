@@ -326,9 +326,17 @@ cuentas de ese número: un id ajeno se rechaza en el servidor.
 
 ### Pedidos
 
-Entran a `orders` con `status = 'borrador'`, `order_type = 'whatsapp'` y el
-`sales_rep_id` de la cuenta, con folio `COT-2026-NNNN`. El vendedor los revisa en
+Entran a `orders` con `status = 'borrador'`, `order_type = 'pedido'` y el
+`sales_rep_id` de la cuenta, con folio `PED-2026-NNNN`. El vendedor los revisa en
 TERAVINO Flow antes de aceptarlos. Si fallan las partidas, el encabezado se borra.
+
+> **Un pedido no es una cotización.** El CRM distingue las dos cosas y los folios
+> lo dicen: `COT-2026-NNNN` (`order_type = 'cotizacion'`) es lo que arma un
+> vendedor para que el cliente lo piense; `PED-2026-NNNN` (`order_type = 'pedido'`)
+> es mercancía que alguien ya pidió. Lo que levanta el bot es un pedido, porque el
+> cliente ya confirmó productos y cantidades. Los avisos de "pedido atorado" y el
+> conteo del resumen diario **sólo miran pedidos**: una cotización en borrador es
+> un vendedor trabajando, no un cliente esperando.
 
 **Y el pedido avisa que existe.** Ese es el punto del canal: el cliente puede
 pedir aunque su vendedora esté de vacaciones, en ruta o sea domingo, pero un

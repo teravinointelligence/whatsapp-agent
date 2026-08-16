@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { crm } from "./client.js";
 
 /** Cuántos días pasaron desde una fecha ISO, contra hoy. */
@@ -16,9 +17,12 @@ export interface PendingOrder {
 }
 
 /**
- * Pedidos que siguen en borrador, del más viejo al más nuevo.
+ * Pedidos en borrador, del más viejo al más nuevo.
  *
- * Un borrador es un cliente esperando: mientras nadie lo acepte, no se surte.
+ * Sólo `order_type = 'pedido'`: en el CRM una cotización en borrador es un
+ * vendedor armando una propuesta, y esas no son asunto de estos avisos. Un
+ * PEDIDO en borrador sí es un cliente esperando, porque mientras nadie lo
+ * acepte no se surte.
  */
 export async function pendingOrders(minDays = 0): Promise<PendingOrder[]> {
   const { data, error } = await crm
@@ -27,6 +31,7 @@ export async function pendingOrders(minDays = 0): Promise<PendingOrder[]> {
       "id, order_number, order_date, created_at, total, accounts(business_name), sales_reps!orders_sales_rep_id_fkey(full_name)",
     )
     .eq("status", "borrador")
+    .eq("order_type", config.crm.orderType)
     .order("created_at");
 
   if (error) {
