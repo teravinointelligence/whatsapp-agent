@@ -47,6 +47,7 @@ buscar_productos  crear_pedido  consultar_pedidos
 | `consultar_producto` | Ficha y existencias por SKU |
 | `crear_pedido` | Crea el pedido en `orders`/`order_items` como borrador |
 | `consultar_pedidos` | Pedidos recientes de las cuentas de ese cliente |
+| `enviar_portafolio` | Devuelve el link del portafolio digital de la plaza del cliente |
 | `registrar_prospecto` | Captura en `prospects` a quien no es cliente todavía, con su correo |
 | `buscar_cuenta` | **Sólo administración**: busca cuentas del CRM por nombre |
 | `consultar_prospectos` | **Sólo administración**: lista los prospectos captados |
@@ -189,6 +190,30 @@ Los precios son por botella y sin IVA; el pedido calcula el 16% al guardar.
 
 Las 93 cuentas sin región usan `DEFAULT_WAREHOUSE`. `V612` queda fuera del mapeo
 por ser bodega central y no plaza de venta.
+
+### Portafolio digital
+
+Cada plaza tiene su propio PDF, con precios y catálogo distintos, así que el link
+se elige por la plaza y no al tanteo:
+
+| Plaza | Link | Zonas que atiende |
+|---|---|---|
+| Los Cabos | `teravinolc.tiiny.site` | Cabo San Lucas, San José del Cabo, El Pescadero, Todos Santos |
+| La Paz | `teravinolp.tiiny.site` | La Paz y BCS zona norte |
+| Vallarta | `teravinovt.tiiny.site` | Puerto Vallarta, Nuevo Vallarta, Punta Mita, Sayulita |
+| Tijuana | `teravinotj.tiiny.site` | Tijuana, Ensenada, Rosarito, Mexicali |
+
+- **Cliente identificado**: la plaza sale del almacén que surte su cuenta. Si dice
+  estar en otra ciudad, no cambia nada: su portafolio es el de su cuenta.
+- **Sin identificar**: el agente le pregunta de qué ciudad es y `enviar_portafolio`
+  traduce lo que haya dicho a una plaza. Reconoce las zonas de la tabla más varios
+  alias ("cabos", "tj", "nayarit", "valle de guadalupe").
+- **Si no reconoce la ciudad, o si apunta a dos plazas, no manda nada** y le dice
+  al agente que pregunte. Mandar el link equivocado le enseña al cliente precios
+  que no son los suyos.
+
+El link nunca lo escribe el modelo: sale de `PORTFOLIOS` en `src/config.ts`, que es
+donde se actualiza cuando cambie el portafolio del mes.
 
 ### Compradores con varias cuentas
 

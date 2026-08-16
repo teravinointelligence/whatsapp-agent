@@ -20,6 +20,7 @@ import {
   registerProspect,
 } from "../crm/prospects.js";
 import { notifyAdminsOfProspect } from "../notify.js";
+import { findPortfolios, plazaNames, portfolioForPlaza } from "../portfolio.js";
 
 /**
  * Contexto que el servidor resuelve antes de invocar al agente. La cuenta sale
@@ -165,6 +166,27 @@ export const tools: Anthropic.Tool[] = [
         },
       },
       required: ["nombre"],
+    },
+  },
+  {
+    name: "enviar_portafolio",
+    description:
+      "Devuelve el link del portafolio digital que le toca al cliente. Úsala " +
+      "siempre que pidan el catálogo, la lista de precios o el portafolio: cada " +
+      "plaza tiene el suyo y NUNCA debes escribir un link de memoria. Con un " +
+      "cliente ya identificado no necesitas argumentos. Con quien no lo está, " +
+      "pregúntale primero de qué ciudad es y pasa lo que te haya dicho en 'plaza'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        plaza: {
+          type: "string",
+          description:
+            "Ciudad o zona que dijo el cliente, en sus palabras. Ej. 'Cabo San Lucas', " +
+            "'La Paz', 'Sayulita', 'Ensenada'. Omítelo si el cliente ya está identificado.",
+        },
+      },
+      required: [],
     },
   },
   {
@@ -359,6 +381,61 @@ export async function runTool(
           return { content: "Ninguna cuenta coincide con ese nombre.", isError: false };
         }
         return { content: JSON.stringify(results, null, 2), isError: false };
+      }
+
+      case "enviar_portafolio": {
+        const pedida = typeof args.plaza === "string" ? args.plaza.trim() : "";
+
+        // La plaza de un cliente identificado la manda su cuenta, no lo que
+        // diga en el chat: su portafolio es el de la plaza que lo surte.
+        if (account.isKnown && !account.isAmbiguous) {
+          const portfolio = portfolioForPlaza(account.warehouse);
+          if (portfolio) {
+            return {
+              content: JSON.stringify(
+                { plaza: portfolio.plaza, link: portfolio.url },
+                null,
+                2,
+              ),
+              isError: false,
+            };
+          }
+        }
+
+        if (!pedida) {
+          return {
+            content:
+              `Falta saber de qué plaza es. Pregúntale de qué ciudad es y vuelve a llamarme con eso. Las plazas son: ${plazaNames().join(", ")}.`,
+            isError: true,
+          };
+        }
+
+        const matches = findPortfolios(pedida);
+
+        if (matches.length === 0) {
+          return {
+            content:
+              `No reconozco "${pedida}" como una de nuestras plazas (${plazaNames().join(", ")}). Pregúntale a cuál le queda más cerca; no le mandes un link al tanteo.`,
+            isError: true,
+          };
+        }
+        if (matches.length > 1) {
+          const plazas = matches.map((p) => p.plaza).join(" o ");
+          return {
+            content: `"${pedida}" puede ser ${plazas}. Pregúntale cuál antes de mandarle nada.`,
+            isError: true,
+          };
+        }
+
+        const portfolio = matches[0]!;
+        return {
+          content: JSON.stringify(
+            { plaza: portfolio.plaza, link: portfolio.url },
+            null,
+            2,
+          ),
+          isError: false,
+        };
       }
 
       case "registrar_prospecto": {

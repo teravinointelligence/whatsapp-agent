@@ -99,5 +99,42 @@ export const PRICE_TIER_FACTOR: Record<string, number> = {
   "+10": 1.1,
 };
 
+export interface Portfolio {
+  /** Coincide con el nombre del almacén que surte la plaza. */
+  plaza: string;
+  url: string;
+  /** Localidades que atiende, para reconocer de qué plaza es el cliente. */
+  zonas: string[];
+}
+
+/**
+ * Portafolios digitales por plaza (agosto 2026).
+ *
+ * Cada plaza tiene su propio PDF porque cambian precios y catálogo, así que el
+ * link se elige por la plaza del cliente, nunca al tanteo.
+ */
+export const PORTFOLIOS: Portfolio[] = [
+  {
+    plaza: "Los Cabos",
+    url: "https://teravinolc.tiiny.site",
+    zonas: ["Cabo San Lucas", "San José del Cabo", "El Pescadero", "Todos Santos"],
+  },
+  {
+    plaza: "La Paz",
+    url: "https://teravinolp.tiiny.site",
+    zonas: ["La Paz", "Baja California Sur (zona norte)"],
+  },
+  {
+    plaza: "Vallarta",
+    url: "https://teravinovt.tiiny.site",
+    zonas: ["Puerto Vallarta", "Nuevo Vallarta", "Punta Mita", "Sayulita"],
+  },
+  {
+    plaza: "Tijuana",
+    url: "https://teravinotj.tiiny.site",
+    zonas: ["Tijuana", "Ensenada", "Rosarito", "Mexicali"],
+  },
+];
+
 /** Nivel que se aplica a quien no está identificado en el CRM. */
 export const DEFAULT_PRICE_TIER = optional("DEFAULT_PRICE_TIER", "+10");
