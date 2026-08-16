@@ -7,6 +7,7 @@ export interface Prospect {
   negocio: string;
   contacto: string | null;
   telefono: string;
+  correo: string | null;
   ciudad: string | null;
   region: string | null;
   interes: string | null;
@@ -20,6 +21,7 @@ interface ProspectRow {
   business_name: string;
   contact_name: string | null;
   phone: string;
+  email: string | null;
   city: string | null;
   region: string | null;
   interest: string | null;
@@ -29,7 +31,7 @@ interface ProspectRow {
 }
 
 const SELECT_COLUMNS =
-  "id, business_name, contact_name, phone, city, region, interest, status, created_at, sales_reps(full_name)";
+  "id, business_name, contact_name, phone, email, city, region, interest, status, created_at, sales_reps(full_name)";
 
 function hydrate(row: ProspectRow): Prospect {
   return {
@@ -37,6 +39,7 @@ function hydrate(row: ProspectRow): Prospect {
     negocio: row.business_name,
     contacto: row.contact_name,
     telefono: row.phone,
+    correo: row.email,
     ciudad: row.city,
     region: row.region,
     interes: row.interest,
@@ -52,6 +55,8 @@ export interface RegisterProspectInput {
   telegramUserId: string;
   businessName: string;
   contactName?: string;
+  /** Correo para cotizaciones y facturas. */
+  email?: string;
   city?: string;
   interest?: string;
 }
@@ -60,6 +65,19 @@ export interface RegisteredProspect {
   prospect: Prospect;
   /** false cuando ya existía y sólo se actualizó. */
   isNew: boolean;
+  /** true si venía un correo con forma inválida y no se guardó. */
+  emailRejected: boolean;
+}
+
+/**
+ * Comprobación deliberadamente laxa: sólo descarta lo que no puede ser un
+ * correo. Dictar un correo por chat sale mal seguido —"arroba", espacios de
+ * más, el nombre en vez de la dirección— y guardar eso significa mandar la
+ * factura al vacío. Pero tampoco queremos rechazar un dominio raro que sí
+ * existe, así que no validamos más allá de la forma.
+ */
+function looksLikeEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@.]+\.[^\s@]{2,}$/.test(value);
 }
 
 /**
@@ -98,6 +116,12 @@ export async function registerProspect(
   if (input.city?.trim()) patch.city = input.city.trim();
   if (input.interest?.trim()) patch.interest = input.interest.trim();
 
+  // El correo que no pasa la comprobación no se guarda, pero tampoco tira el
+  // registro: perder al prospecto por una arroba mal dictada sería peor.
+  const email = input.email?.trim().toLowerCase() ?? "";
+  const emailRejected = email !== "" && !looksLikeEmail(email);
+  if (email && !emailRejected) patch.email = email;
+
   if (existingRow) {
     const { data, error } = await crm
       .from("prospects")
@@ -109,7 +133,11 @@ export async function registerProspect(
     if (error) {
       throw new ProspectError(`No se pudo actualizar el prospecto: ${error.message}`);
     }
-    return { prospect: hydrate(data as unknown as ProspectRow), isNew: false };
+    return {
+      prospect: hydrate(data as unknown as ProspectRow),
+      isNew: false,
+      emailRejected,
+    };
   }
 
   const { data, error } = await crm
@@ -122,7 +150,11 @@ export async function registerProspect(
     throw new ProspectError(`No se pudo registrar el prospecto: ${error.message}`);
   }
 
-  return { prospect: hydrate(data as unknown as ProspectRow), isNew: true };
+  return {
+    prospect: hydrate(data as unknown as ProspectRow),
+    isNew: true,
+    emailRejected,
+  };
 }
 
 /** Lista prospectos, opcionalmente filtrando por estatus. */

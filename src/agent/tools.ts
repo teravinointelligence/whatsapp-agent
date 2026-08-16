@@ -172,9 +172,10 @@ export const tools: Anthropic.Tool[] = [
     description:
       "Registra en el CRM a un negocio que todavía no es cliente, para que la " +
       "administración le asigne un vendedor. Úsala cuando alguien no identificado " +
-      "te diga de qué negocio viene y quiera trabajar con nosotros. Pide primero " +
-      "el nombre del negocio; lo demás es opcional. Si vuelve a escribir no se " +
-      "duplica, se actualiza. Sólo funciona con quien ya compartió su teléfono.",
+      "te diga de qué negocio viene y quiera trabajar con nosotros. Pide el nombre " +
+      "del negocio y su correo, que es a donde se le mandarán cotizaciones y " +
+      "facturas; lo demás es opcional. Si vuelve a escribir no se duplica, se " +
+      "actualiza. Sólo funciona con quien ya compartió su teléfono.",
     input_schema: {
       type: "object",
       properties: {
@@ -185,6 +186,12 @@ export const tools: Anthropic.Tool[] = [
         contacto: {
           type: "string",
           description: "Nombre de la persona con la que hablas.",
+        },
+        correo: {
+          type: "string",
+          description:
+            "Correo para cotizaciones y facturas. Escríbelo tal como lo dictó, sin " +
+            "completarlo ni corregirle el dominio.",
         },
         ciudad: {
           type: "string",
@@ -376,11 +383,12 @@ export async function runTool(
           };
         }
 
-        const { prospect, isNew } = await registerProspect({
+        const { prospect, isNew, emailRejected } = await registerProspect({
           phone,
           telegramUserId: context.userId,
           businessName: String(args.negocio ?? ""),
           contactName: typeof args.contacto === "string" ? args.contacto : undefined,
+          email: typeof args.correo === "string" ? args.correo : undefined,
           city: typeof args.ciudad === "string" ? args.ciudad : undefined,
           interest: typeof args.interes === "string" ? args.interes : undefined,
         });
@@ -388,16 +396,30 @@ export async function runTool(
         // El aviso a la administración no debe bloquear la respuesta al cliente.
         void notifyAdminsOfProspect(prospect);
 
+        const notas = [
+          isNew
+            ? "Quedó registrado y la administración ya fue avisada."
+            : "Ya estaba registrado; se actualizaron sus datos.",
+        ];
+        if (emailRejected) {
+          notas.push(
+            "El correo que pasaste no tiene forma de correo y NO se guardó: pídeselo otra vez y vuelve a llamar la herramienta.",
+          );
+        } else if (!prospect.correo) {
+          notas.push(
+            "Todavía no tiene correo registrado. Pídeselo para poder mandarle cotizaciones y facturas, y vuelve a llamar la herramienta con él.",
+          );
+        }
+
         return {
           content: JSON.stringify(
             {
               registrado: true,
               nuevo: isNew,
               negocio: prospect.negocio,
+              correo: prospect.correo,
               estatus: prospect.estatus,
-              nota: isNew
-                ? "Quedó registrado y la administración ya fue avisada."
-                : "Ya estaba registrado; se actualizaron sus datos.",
+              nota: notas.join(" "),
             },
             null,
             2,

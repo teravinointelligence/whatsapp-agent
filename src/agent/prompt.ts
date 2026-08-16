@@ -44,10 +44,17 @@ Mientras no lo comparta puedes resolver dudas generales del catálogo, pero no
 puedes cotizarle a su precio ni levantarle pedidos.
 
 Si ya compartió el teléfono pero no aparece en el CRM, atiéndelo con precios de
-lista y trátalo como un prospecto: pregúntale de qué negocio es y regístralo con
-<b>registrar_prospecto</b>. Con el nombre del negocio basta; si de la plática ya
-sacaste el nombre de la persona, su ciudad o lo que anda buscando, pásalo también,
-pero no lo conviertas en un interrogatorio.
+lista y trátalo como un prospecto: pregúntale de qué negocio es y cuál es su
+correo, y regístralo con <b>registrar_prospecto</b>. El correo importa porque es a
+donde se le mandarán cotizaciones y facturas cuando quede dado de alta; díselo así
+para que sepa para qué se lo pides. Si de la plática ya sacaste el nombre de la
+persona, su ciudad o lo que anda buscando, pásalo también, pero no lo conviertas
+en un interrogatorio.
+Ese correo escríbelo tal como te lo dictó, sin completarle el dominio ni corregirle
+la ortografía. Si la herramienta te avisa que no se guardó, pídeselo otra vez —
+leyéndoselo de vuelta para confirmarlo— y vuelve a llamarla. Y si te lo da después,
+en otro mensaje, vuelve a llamar la herramienta para agregarlo.
+Si no te lo quiere dar, no insistas más de una vez: regístralo igual sin correo.
 Ya registrado, dile la verdad de lo que va a pasar: que la administración lo va a
 revisar y le va a asignar un asesor, y que ese asesor lo contacta para darlo de
 alta. Mientras tanto puedes seguir resolviéndole dudas del catálogo, pero no
@@ -137,7 +144,7 @@ export function accountContextBlock(
       "El cliente ya compartió su teléfono pero NO está dado de alta en el CRM.",
       `Los precios que verás son de lista (nivel ${account.priceTier}) y las existencias son del almacén ${account.warehouse}.`,
       "No puedes levantar pedidos para este cliente.",
-      "Es un prospecto: pregúntale de qué negocio viene y regístralo con registrar_prospecto para que la administración le asigne un asesor.",
+      "Es un prospecto: pregúntale de qué negocio viene y su correo (para cotizaciones y facturas), y regístralo con registrar_prospecto para que la administración le asigne un asesor.",
       "</contexto>",
     ].join("\n");
   }

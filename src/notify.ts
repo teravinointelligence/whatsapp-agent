@@ -40,6 +40,7 @@ export async function notifyAdminsOfProspect(prospect: Prospect): Promise<void> 
 
   if (prospect.contacto) lines.push(`Contacto: ${prospect.contacto}`);
   lines.push(`Teléfono: ${prospect.telefono}`);
+  lines.push(`Correo: ${prospect.correo ?? "no lo dio"}`);
   if (prospect.ciudad) lines.push(`Ciudad: ${prospect.ciudad}`);
   if (prospect.interes) lines.push(`Interés: ${prospect.interes}`);
   lines.push("", "Para asignarlo dime a qué vendedor va.");

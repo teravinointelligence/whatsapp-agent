@@ -47,7 +47,7 @@ buscar_productos  crear_pedido  consultar_pedidos
 | `consultar_producto` | Ficha y existencias por SKU |
 | `crear_pedido` | Crea el pedido en `orders`/`order_items` como borrador |
 | `consultar_pedidos` | Pedidos recientes de las cuentas de ese cliente |
-| `registrar_prospecto` | Captura en `prospects` a quien no es cliente todavía |
+| `registrar_prospecto` | Captura en `prospects` a quien no es cliente todavía, con su correo |
 | `buscar_cuenta` | **Sólo administración**: busca cuentas del CRM por nombre |
 | `consultar_prospectos` | **Sólo administración**: lista los prospectos captados |
 | `asignar_prospecto` | **Sólo administración**: se lo asigna a un vendedor |
@@ -87,13 +87,13 @@ el bot lo atiende con precios de lista pero no puede levantarle pedidos.
 ### Prospectos
 
 A quien comparte su teléfono pero no está en el CRM, el agente le pregunta de qué
-negocio viene y lo captura en la tabla `prospects` con `registrar_prospecto`. Es
-un embudo, no un alta: el prospecto **no** se vuelve cliente ni puede levantar
-pedidos: eso lo decide una persona.
+negocio viene y cuál es su correo, y lo captura en la tabla `prospects` con
+`registrar_prospecto`. Es un embudo, no un alta: el prospecto **no** se vuelve
+cliente ni puede levantar pedidos: eso lo decide una persona.
 
 ```
 cliente no identificado
-        │  registrar_prospecto (negocio, contacto, ciudad, interés)
+        │  registrar_prospecto (negocio, correo, contacto, ciudad, interés)
         ▼
 prospects (status = 'nuevo')  ──►  aviso por Telegram a la administración
         │  asignar_prospecto "Yamile"
@@ -106,6 +106,12 @@ cuenta en accounts (status = 'convertido')
 
 - **No se duplica.** El teléfono es único; si vuelve a escribir días después se
   actualiza el mismo registro, y el estatus no retrocede si ya fue asignado.
+- **El correo se pide desde el primer contacto**, que es a donde irán cotizaciones
+  y facturas. Un correo que no tiene forma de correo —"compras arroba aman.com",
+  el nombre de la persona, un dominio sin punto— no se guarda, pero tampoco tira
+  el registro: el prospecto queda y el agente vuelve a pedirlo. Se guarda tal como
+  lo dictaron, en minúsculas; el agente tiene prohibido completar el dominio.
+  Si no lo quieren dar, se registra sin correo.
 - **Sólo con teléfono compartido.** Sin él no hay a quién registrar ni a quién
   devolverle la llamada, así que la herramienta lo rechaza.
 - **El personal no se registra a sí mismo.** Ni un cliente ya dado de alta: la
