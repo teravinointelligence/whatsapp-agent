@@ -548,6 +548,8 @@ export async function runTool(
           botellas: order.partidas.reduce((sum, line) => sum + line.cantidad, 0),
           warehouse: order.almacen,
           repNotified: order.avisoAlVendedor,
+          repName: order.vendedor,
+          adminTasks: order.avisosAdmin,
         });
 
         return {
@@ -555,8 +557,8 @@ export async function runTool(
             {
               ...order,
               nota: order.avisoAlVendedor
-                ? "Su vendedor ya tiene la tarea de revisarlo en el CRM."
-                : "Esta cuenta no tiene vendedor asignado; se avisó a la administración.",
+                ? "Su vendedor ya tiene la tarea de revisarlo en el CRM, y la administración también quedó pendiente."
+                : "Esta cuenta no tiene vendedor asignado; la revisa la administración, que ya tiene la tarea.",
             },
             null,
             2,

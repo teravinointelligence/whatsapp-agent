@@ -77,25 +77,36 @@ export async function notifyAdminsOfOrder(order: {
   botellas: number;
   warehouse: string;
   repNotified: boolean;
+  repName: string | null;
+  adminTasks: number;
 }): Promise<void> {
   const total = order.total.toLocaleString("es-MX", {
     style: "currency",
     currency: "MXN",
   });
 
-  await tellAdmins(
-    [
-      "🧾 <b>Pedido nuevo por Telegram</b>",
-      "",
-      `<b>${order.businessName}</b>`,
-      `Folio ${order.folio} · ${order.botellas} botellas · ${total} con IVA`,
-      `Almacén: ${order.warehouse}`,
-      "",
-      order.repNotified
-        ? "Ya le quedó la tarea de revisarlo a su vendedor en el CRM."
-        : "⚠️ Esta cuenta no tiene vendedor asignado: nadie más recibió el aviso.",
-    ].join("\n"),
-  );
+  const lines = [
+    "🧾 <b>Pedido nuevo por Telegram</b>",
+    "",
+    `<b>${order.businessName}</b>`,
+    `Folio ${order.folio} · ${order.botellas} botellas · ${total} con IVA`,
+    `Almacén: ${order.warehouse}`,
+    "",
+  ];
+
+  if (order.repNotified) {
+    lines.push(
+      `Le quedó la tarea de revisarlo a ${order.repName ?? "su vendedor"} en el CRM.`,
+    );
+  } else {
+    lines.push("⚠️ Esta cuenta no tiene vendedor asignado.");
+  }
+
+  if (order.adminTasks > 0) {
+    lines.push("También te quedó a ti en tus tareas, para que no se atore.");
+  }
+
+  await tellAdmins(lines.join("\n"));
 }
 
 /**

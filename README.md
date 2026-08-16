@@ -336,12 +336,20 @@ borrador que nadie mira no sirve de nada. Al crearse:
 
 1. Le queda una **tarea al vendedor asignado** en `rep_tasks`, con prioridad 100 y
    para hoy: *"Revisar pedido COT-2026-0085 de Montage Hotels (Telegram)"*.
-2. **La administración recibe un aviso por Telegram**, porque el caso que este
-   canal atiende es justo que el vendedor no esté disponible.
+2. Le queda una **tarea de vigilancia a la administración**, con la misma
+   prioridad: *"Vigilar pedido… asignado a Yamile"*. El vendedor de vacaciones
+   tampoco va a ver el CRM, así que el aviso no puede depender sólo de él.
+3. **La administración recibe además el aviso por Telegram**, para enterarse sin
+   entrar al CRM.
 
-Si la cuenta no tiene vendedor asignado —25 cuentas activas— no hay tarea que
-crear y el aviso a la administración es el único; el mensaje lo dice con una
-advertencia en vez de callárselo.
+Las dos tareas comparten `dedupe_key = telegram:<order_id>`; como el índice único
+es `(sales_rep_id, dedupe_key)`, cada persona recibe la suya y un reproceso no
+duplica ninguna. Si la cuenta ya está asignada a la propia administradora —46 de
+ellas— no se crea la copia.
+
+Si la cuenta no tiene vendedor asignado —25 activas— sólo queda la tarea de la
+administración, y tanto la tarea como el aviso lo dicen con una advertencia en vez
+de callárselo.
 
 > `rep_tasks.source` tiene un CHECK que sólo acepta `prospecto`, `cobranza`,
 > `inactivo` y `manual`, así que la tarea entra como `manual` —lo que más se le
