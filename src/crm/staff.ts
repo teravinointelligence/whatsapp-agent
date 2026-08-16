@@ -1,13 +1,19 @@
 import { crm, normalizePhone } from "./client.js";
 
-/** Alguien del equipo de Teravino, identificado por su número. */
+/**
+ * Alguien del equipo de Teravino, identificado por su número.
+ *
+ * Este canal es para clientes y para la administradora. Los vendedores tienen
+ * su propio agente en Base44, así que aquí se les reconoce para no tratarlos
+ * como clientes, pero no reciben las consultas internas.
+ */
 export interface StaffContext {
   id: string;
   name: string;
   /** admin, rep, chofer, contador, jefe_logistica… */
   role: string;
   region: string | null;
-  /** true sólo para 'admin': ve todo sin restricción de región. */
+  /** Sólo 'admin' tiene acceso a las herramientas internas de este canal. */
   isAdmin: boolean;
 }
 

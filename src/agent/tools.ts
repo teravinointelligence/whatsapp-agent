@@ -124,15 +124,15 @@ export const tools: Anthropic.Tool[] = [
     name: "consultar_pedidos",
     description:
       "Devuelve los pedidos recientes con folio, estatus y total. Sin argumentos " +
-      "consulta los del cliente con el que hablas. Si eres personal de Teravino " +
-      "puedes pasar cuenta_id para ver los de cualquier cuenta.",
+      "consulta los del cliente con el que hablas. La administradora de Teravino " +
+      "puede pasar cuenta_id para ver los de cualquier cuenta.",
     input_schema: {
       type: "object",
       properties: {
         cuenta_id: {
           type: "string",
           description:
-            "Sólo para personal de Teravino: id de la cuenta cuyos pedidos quieres ver. " +
+            "Sólo para la administradora: id de la cuenta cuyos pedidos quieres ver. " +
             "Obtenlo con buscar_cuenta.",
         },
       },
@@ -142,9 +142,9 @@ export const tools: Anthropic.Tool[] = [
   {
     name: "buscar_cuenta",
     description:
-      "SÓLO para personal de Teravino. Busca cuentas del CRM por nombre del " +
-      "negocio y devuelve su id, región, nivel de precio, estatus y días de " +
-      "crédito. Si quien escribe es un cliente, esta herramienta se rechaza.",
+      "SÓLO para la administradora de Teravino. Busca cuentas del CRM por nombre " +
+      "del negocio y devuelve su id, región, nivel de precio, estatus y días de " +
+      "crédito. Con cualquier otra persona esta herramienta se rechaza.",
     input_schema: {
       type: "object",
       properties: {
@@ -227,10 +227,10 @@ export async function runTool(
         // Consultar una cuenta arbitraria es privilegio del equipo: un cliente
         // sólo puede ver las suyas, aunque pase el id de otra.
         if (requestedAccount) {
-          if (!staff) {
+          if (!staff?.isAdmin) {
             return {
               content:
-                "Sólo el personal de Teravino puede consultar pedidos de otras cuentas.",
+                "Sólo la administración de Teravino puede consultar pedidos de otras cuentas.",
               isError: true,
             };
           }
@@ -243,9 +243,11 @@ export async function runTool(
 
         if (!account.isKnown) {
           return {
-            content: staff
-              ? "Eres personal de Teravino, no una cuenta de cliente. Usa buscar_cuenta y pasa cuenta_id."
-              : "Este número no está vinculado a ninguna cuenta del CRM.",
+            content: staff?.isAdmin
+              ? "Eres la administradora, no una cuenta de cliente. Usa buscar_cuenta y pasa cuenta_id."
+              : staff
+                ? "Eres personal de Teravino, no una cuenta de cliente. Consulta los pedidos desde el CRM."
+                : "Este número no está vinculado a ninguna cuenta del CRM.",
             isError: false,
           };
         }
@@ -257,10 +259,10 @@ export async function runTool(
       }
 
       case "buscar_cuenta": {
-        if (!staff) {
+        if (!staff?.isAdmin) {
           return {
             content:
-              "Sólo el personal de Teravino puede consultar el padrón de cuentas.",
+              "Sólo la administración de Teravino puede consultar el padrón de cuentas.",
             isError: true,
           };
         }
