@@ -106,8 +106,15 @@ le ofrezcas darlo de alta. Ya sabes quién es. Háblale como a un colega: direct
 sin discurso de ventas.
 
 Con la ADMINISTRADORA puedes consultar cualquier cuenta del padrón con
-buscar_cuenta, y ver los pedidos de cualquier cuenta pasando su cuenta_id a
-consultar_pedidos.
+buscar_cuenta —por nombre o por número de cliente— y ver los pedidos de
+cualquier cuenta pasando su cuenta_id a consultar_pedidos.
+Con <b>estado_de_cuenta</b> le das saldo, vencido, antigüedad, facturas abiertas,
+último pago y cuándo se le mandó por última vez su estado de cuenta por correo;
+acepta el número de cliente directo, así que no busques la cuenta antes si ella
+ya te lo dio. Y <b>consultar_muestras</b> le da las solicitudes de muestra del
+equipo: sin argumentos, las que faltan por revisar.
+Ella suele nombrar a las cuentas por su número ("el cliente 120"): eso va tal cual
+a numero_cliente.
 También lleva los prospectos: consultar_prospectos te los lista (puede filtrar
 por estatus 'nuevo', 'asignado', 'convertido' o 'descartado') y asignar_prospecto
 se los pasa a un vendedor por su nombre. El id del prospecto sale de la lista,
@@ -226,6 +233,7 @@ export function staffContextBlock(staff: StaffContext): string {
     lines.push(
       "Es la ADMINISTRADORA: puede consultar cualquier cuenta con buscar_cuenta y los pedidos de cualquier cuenta con cuenta_id.",
       "También puede ver los prospectos con consultar_prospectos y asignárselos a un vendedor con asignar_prospecto.",
+      "Y cobranza con estado_de_cuenta (saldo, vencido, facturas, último envío del estado de cuenta) y muestras con consultar_muestras.",
     );
   } else {
     lines.push(

@@ -24,6 +24,8 @@ import {
   type OrderItemInput,
 } from "../crm/orders.js";
 import { searchAccounts, type StaffContext } from "../crm/staff.js";
+import { FinanceError, getStatement, listStatementEmails } from "../crm/finance.js";
+import { listSampleRequests, SampleError } from "../crm/samples.js";
 import {
   assignProspect,
   listProspects,
@@ -240,6 +242,52 @@ export const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: "estado_de_cuenta",
+    description:
+      "SÓLO para la administradora. Saldo de una cuenta: total, cuánto está " +
+      "vencido y desde cuándo, las facturas abiertas, el último pago recibido y " +
+      "cuándo se le mandó por última vez su estado de cuenta por correo. Acepta " +
+      "el número de cliente directo, sin buscar la cuenta antes.",
+    input_schema: {
+      type: "object",
+      properties: {
+        numero_cliente: {
+          type: "string",
+          description: "Número de cliente. Ej. '120'. Es la forma más directa.",
+        },
+        cuenta_id: {
+          type: "string",
+          description: "Id de la cuenta, si ya lo tienes de buscar_cuenta.",
+        },
+        historial_envios: {
+          type: "boolean",
+          description:
+            "true para ver todos los envíos de estado de cuenta, no sólo el último.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "consultar_muestras",
+    description:
+      "SÓLO para la administradora. Solicitudes de muestra del equipo. Sin " +
+      "argumentos devuelve las que faltan por revisar, con folio, cuenta, " +
+      "vendedor, productos y botellas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        estatus: {
+          type: "string",
+          description:
+            "'borrador' (pendientes por revisar, es lo que da por defecto), " +
+            "'aprobada', 'rechazada', 'entregada', 'cancelada' o 'todas'.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: "registrar_prospecto",
     description:
       "Registra en el CRM a un negocio que todavía no es cliente, para que la " +
@@ -431,6 +479,80 @@ export async function runTool(
           return { content: "Ninguna cuenta coincide con ese nombre.", isError: false };
         }
         return { content: JSON.stringify(results, null, 2), isError: false };
+      }
+
+      case "estado_de_cuenta": {
+        if (!staff?.isAdmin) {
+          return {
+            content:
+              "Sólo la administración de Teravino puede consultar saldos y cobranza.",
+            isError: true,
+          };
+        }
+
+        const numero =
+          typeof args.numero_cliente === "string" ? args.numero_cliente.trim() : "";
+        let accountId = typeof args.cuenta_id === "string" ? args.cuenta_id.trim() : "";
+
+        if (!accountId && numero) {
+          const matches = await findAccountsByClientNumber(numero);
+          if (matches.length === 0) {
+            return {
+              content: `No hay ninguna cuenta con el número de cliente ${numero}.`,
+              isError: true,
+            };
+          }
+          if (matches.length > 1) {
+            const nombres = matches.map((m) => `${m.businessName} (${m.id})`).join(", ");
+            return {
+              content: `El número ${numero} lo tienen dos cuentas: ${nombres}. Pregúntale cuál y vuelve a llamarme con cuenta_id.`,
+              isError: true,
+            };
+          }
+          accountId = matches[0]!.id;
+        }
+
+        if (!accountId) {
+          return {
+            content:
+              "Necesito el número de cliente o el cuenta_id. Si sólo tienes el nombre, búscalo antes con buscar_cuenta.",
+            isError: true,
+          };
+        }
+
+        const statement = await getStatement(accountId);
+
+        if (args.historial_envios === true) {
+          const envios = await listStatementEmails(accountId);
+          return {
+            content: JSON.stringify({ ...statement, envios }, null, 2),
+            isError: false,
+          };
+        }
+
+        return { content: JSON.stringify(statement, null, 2), isError: false };
+      }
+
+      case "consultar_muestras": {
+        if (!staff?.isAdmin) {
+          return {
+            content: "Sólo la administración de Teravino puede ver las muestras.",
+            isError: true,
+          };
+        }
+
+        const estatus = typeof args.estatus === "string" ? args.estatus.trim() : "";
+        const muestras = await listSampleRequests(estatus || undefined);
+
+        if (muestras.length === 0) {
+          return {
+            content: estatus
+              ? `No hay solicitudes de muestra con estatus "${estatus}".`
+              : "No hay solicitudes de muestra pendientes por revisar.",
+            isError: false,
+          };
+        }
+        return { content: JSON.stringify(muestras, null, 2), isError: false };
       }
 
       case "vincular_cuenta": {
@@ -723,7 +845,9 @@ export async function runTool(
     if (
       error instanceof OrderError ||
       error instanceof ProspectError ||
-      error instanceof LinkError
+      error instanceof LinkError ||
+      error instanceof FinanceError ||
+      error instanceof SampleError
     ) {
       return { content: error.message, isError: true };
     }

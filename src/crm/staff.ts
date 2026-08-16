@@ -76,20 +76,36 @@ export interface AccountSummary {
   diasCredito: number | null;
 }
 
+const ACCOUNT_COLUMNS =
+  "id, business_name, region, price_tier, status, client_number, credit_days";
+
 /**
- * Busca cuentas por nombre. Sólo la usa el personal: un cliente no puede
- * consultar los datos de otro.
+ * Busca cuentas por nombre o por número de cliente. Sólo la usa el personal:
+ * un cliente no puede consultar los datos de otro.
+ *
+ * Se acepta el número porque así es como se nombran las cuentas de puertas
+ * adentro ("el cliente 120"), y buscar "120" por nombre no devuelve nada.
  */
 export async function searchAccounts(query: string): Promise<AccountSummary[]> {
   const safe = query.trim().replace(/[,()*%]/g, " ").trim();
   if (!safe) return [];
 
-  const { data, error } = await crm
-    .from("accounts")
-    .select("id, business_name, region, price_tier, status, client_number, credit_days")
-    .ilike("business_name", `%${safe}%`)
-    .order("business_name")
-    .limit(10);
+  const digits = safe.replace(/\D/g, "");
+  const isNumber = digits !== "" && /^\d+$/.test(safe.replace(/^cliente\s+/i, "").trim());
+
+  const { data, error } = isNumber
+    ? await crm
+        .from("accounts")
+        .select(ACCOUNT_COLUMNS)
+        .eq("client_number", digits.replace(/^0+(?=\d)/, ""))
+        .order("business_name")
+        .limit(10)
+    : await crm
+        .from("accounts")
+        .select(ACCOUNT_COLUMNS)
+        .ilike("business_name", `%${safe}%`)
+        .order("business_name")
+        .limit(10);
 
   if (error) {
     console.error("[crm] no se pudieron buscar cuentas:", error.message);

@@ -50,7 +50,9 @@ buscar_productos  crear_pedido  consultar_pedidos
 | `vincular_cuenta` | Liga el teléfono a una cuenta existente contra su número de cliente |
 | `enviar_portafolio` | Devuelve el link del portafolio digital de la plaza del cliente |
 | `registrar_prospecto` | Captura en `prospects` a quien no es cliente todavía, con su correo |
-| `buscar_cuenta` | **Sólo administración**: busca cuentas del CRM por nombre |
+| `buscar_cuenta` | **Sólo administración**: busca cuentas por nombre o número de cliente |
+| `estado_de_cuenta` | **Sólo administración**: saldo, vencido, facturas y último envío |
+| `consultar_muestras` | **Sólo administración**: solicitudes de muestra por revisar |
 | `consultar_prospectos` | **Sólo administración**: lista los prospectos captados |
 | `asignar_prospecto` | **Sólo administración**: se lo asigna a un vendedor |
 
@@ -187,8 +189,24 @@ del rol:
 |---|---|
 | Cliente | Catálogo, precios de su cuenta, sus pedidos, levantar pedidos |
 | Prospecto | Catálogo a precio de lista y quedar registrado en `prospects` |
-| `role = 'admin'` | Además: `buscar_cuenta`, los pedidos de cualquier cuenta y los prospectos |
+| `role = 'admin'` | Además: cuentas, pedidos de cualquier cuenta, prospectos, cobranza y muestras |
 | Cualquier otro empleado | Se le reconoce y se le remite al agente del CRM |
+
+### Lo que alcanza la administración desde el chat
+
+| Pregunta | Herramienta | De dónde sale |
+|---|---|---|
+| "¿el estado de cuenta de Montage?" | `estado_de_cuenta` | `invoices` con saldo, antigüedad calculada contra `due_date` y el día de hoy |
+| "¿cuándo se le mandó su estado de cuenta al 120?" | `estado_de_cuenta` | `client_email_log` con `kind = 'estado_cuenta'` |
+| "¿hay muestras pendientes por aprobar?" | `consultar_muestras` | `sample_requests` en `borrador`, que son las que nadie ha revisado |
+| "el cliente 120" | `buscar_cuenta` | también busca por `client_number`, no sólo por nombre |
+
+La antigüedad se calcula al vuelo y no se lee de `client_balance_snapshots`: ese
+corte es de la última vez que se generó, y la pregunta es cómo está la cuenta hoy.
+
+Lo que sigue sin alcanzar desde el chat: registrar pagos, mandar el estado de
+cuenta por correo, aprobar o rechazar muestras. Todo eso escribe sobre cobranza y
+se hace desde el CRM.
 
 **La autorización se valida en el servidor, no en el prompt.** Si un cliente o un
 vendedor piden "muéstrame los pedidos de tal negocio", la herramienta lo rechaza
