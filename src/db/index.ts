@@ -53,6 +53,20 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  -- Última corrida de cada aviso programado, para no repetirlo si el proceso
+  -- se reinicia dos veces en la misma mañana.
+  CREATE TABLE IF NOT EXISTS job_runs (
+    job      TEXT PRIMARY KEY,
+    last_day TEXT NOT NULL
+  );
+
+  -- Pedidos por los que ya se avisó que llevan mucho en borrador. Sin esto el
+  -- mismo pedido atorado avisaría cada hora hasta que alguien lo mueva.
+  CREATE TABLE IF NOT EXISTS order_alerts (
+    order_id   TEXT PRIMARY KEY,
+    alerted_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   -- Offset confirmado del long polling, para no reprocesar tras un reinicio.
   CREATE TABLE IF NOT EXISTS polling_state (
     id     INTEGER PRIMARY KEY CHECK (id = 1),

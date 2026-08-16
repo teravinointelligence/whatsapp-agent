@@ -3,10 +3,13 @@ import { config } from "./config.js";
 import { getMe, setWebhook } from "./telegram/client.js";
 import { startPolling } from "./telegram/polling.js";
 import { router as telegramRouter } from "./telegram/webhook.js";
+import { startScheduler } from "./scheduler.js";
 
 async function main(): Promise<void> {
   const me = await getMe();
   console.log(`Bot conectado: @${me.username ?? me.id}`);
+
+  startScheduler();
 
   if (config.telegram.mode === "webhook") {
     if (!config.telegram.webhookUrl || !config.telegram.webhookSecret) {

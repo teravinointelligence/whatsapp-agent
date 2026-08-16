@@ -250,11 +250,70 @@ export async function createOrder(input: CreateOrderInput): Promise<CreatedOrder
   };
 }
 
+const ORDER_COLUMNS =
+  "order_number, status, order_date, total, warehouse, accounts(business_name), order_items(product_name, quantity, unit_price)";
+
+/**
+ * En qué va cada estatus, dicho para el cliente.
+ *
+ * NO se usa orders.fulfillment_status: en el CRM dice 'por_surtir' en los 85
+ * pedidos, incluidos los 41 ya entregados. Nadie lo mantiene, así que repetirlo
+ * sería decirle al cliente que su pedido entregado sigue sin surtirse. El que
+ * sí avanza es `status`.
+ */
+const ORDER_STAGE: Record<string, string> = {
+  borrador: "Su vendedor lo está revisando; todavía no entra a surtirse.",
+  aceptada: "Aceptado y en preparación en el almacén.",
+  enviada: "Ya salió del almacén, va en camino.",
+  entregada: "Entregado.",
+  facturada: "Entregado y facturado.",
+  cancelada: "Cancelado.",
+};
+
+export interface OrderSummary {
+  folio: string | null;
+  negocio: string | null;
+  fecha: string | null;
+  estatus: string | null;
+  /** El estatus explicado, para poder decírselo al cliente. */
+  enQueVa: string;
+  total: number;
+  almacen: string | null;
+  partidas: Array<{ nombre: string | null; cantidad: number; precioUnitario: number }>;
+}
+
+function hydrateOrder(row: Record<string, unknown>): OrderSummary {
+  const account = row.accounts as { business_name: string | null } | null;
+  const status = (row.status as string | null) ?? null;
+  const items = (row.order_items ?? []) as Array<{
+    product_name: string | null;
+    quantity: number | null;
+    unit_price: number | null;
+  }>;
+
+  return {
+    folio: (row.order_number as string | null) ?? null,
+    negocio: account?.business_name ?? null,
+    fecha: (row.order_date as string | null) ?? null,
+    estatus: status,
+    enQueVa:
+      (status ? ORDER_STAGE[status] : undefined) ??
+      "No sabemos en qué etapa va; hay que preguntarle a su vendedor.",
+    total: Number(row.total ?? 0),
+    almacen: (row.warehouse as string | null) ?? null,
+    partidas: items.map((item) => ({
+      nombre: item.product_name,
+      cantidad: Number(item.quantity ?? 0),
+      precioUnitario: Number(item.unit_price ?? 0),
+    })),
+  };
+}
+
 /** Pedidos recientes de la cuenta, para responder "¿cómo va mi pedido?". */
 export async function getRecentOrders(
   account: AccountContext,
   limit = 5,
-): Promise<unknown[]> {
+): Promise<OrderSummary[]> {
   // Se consultan todas las cuentas del número, no sólo una: si el comprador
   // atiende varios negocios, quiere ver los pedidos de todos.
   const accountIds = account.candidates.map((c) => c.id);
@@ -262,9 +321,7 @@ export async function getRecentOrders(
 
   const { data, error } = await crm
     .from("orders")
-    .select(
-      "order_number, status, fulfillment_status, order_date, total, warehouse, accounts(business_name), order_items(product_name, quantity, unit_price)",
-    )
+    .select(ORDER_COLUMNS)
     .in("account_id", accountIds)
     .order("order_date", { ascending: false })
     .limit(limit);
@@ -274,7 +331,7 @@ export async function getRecentOrders(
     return [];
   }
 
-  return data ?? [];
+  return (data ?? []).map((row) => hydrateOrder(row as Record<string, unknown>));
 }
 
 /**
@@ -285,12 +342,10 @@ export async function getRecentOrders(
 export async function getOrdersForAccount(
   accountId: string,
   limit = 5,
-): Promise<unknown[]> {
+): Promise<OrderSummary[]> {
   const { data, error } = await crm
     .from("orders")
-    .select(
-      "order_number, status, fulfillment_status, order_date, total, warehouse, accounts(business_name), order_items(product_name, quantity, unit_price)",
-    )
+    .select(ORDER_COLUMNS)
     .eq("account_id", accountId)
     .order("order_date", { ascending: false })
     .limit(limit);
@@ -300,5 +355,5 @@ export async function getOrdersForAccount(
     return [];
   }
 
-  return data ?? [];
+  return (data ?? []).map((row) => hydrateOrder(row as Record<string, unknown>));
 }

@@ -11,7 +11,7 @@ import type { Prospect } from "./crm/prospects.js";
  * número: sin eso no tenemos su chat_id y no hay a dónde escribirle.
  */
 /** Manda el mismo texto a la administración, sin tumbar nada si falla. */
-async function tellAdmins(text: string): Promise<void> {
+export async function tellAdmins(text: string): Promise<void> {
   const { data, error } = await crm
     .from("sales_reps")
     .select("whatsapp")

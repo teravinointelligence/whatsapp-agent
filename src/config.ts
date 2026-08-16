@@ -69,6 +69,22 @@ export const config = {
   /** Cuántos turnos de conversación se recuerdan por número de teléfono. */
   historyTurns: Number(optional("HISTORY_TURNS", "20")),
 
+  avisos: {
+    /**
+     * Zona horaria para los avisos programados. Los Cabos y La Paz usan
+     * America/Mazatlan, que desde 2022 ya no cambia con el horario de verano.
+     */
+    timezone: optional("TIMEZONE", "America/Mazatlan"),
+    /** Hora del resumen diario, en formato 24 h. */
+    briefingHour: Number(optional("BRIEFING_HOUR", "7")),
+    /** Hora del resumen de clientes dormidos, los lunes. */
+    dormantHour: Number(optional("DORMANT_HOUR", "8")),
+    /** Horas que puede pasar un pedido en borrador antes de avisar. */
+    stuckOrderHours: Number(optional("STUCK_ORDER_HOURS", "48")),
+    /** false apaga todos los avisos programados. */
+    enabled: optional("AVISOS", "on") !== "off",
+  },
+
   /** SQLite guarda sólo el historial del chat; el negocio vive en el CRM. */
   databasePath: optional("DATABASE_PATH", "./data/agent.db"),
 } as const;

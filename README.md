@@ -419,6 +419,38 @@ Usa el mismo bucle y el mismo CRM. **Los pedidos que levantes se crean de verdad
 
 ---
 
+## Avisos programados
+
+El bot no sólo contesta: también avisa. Corren dentro del mismo proceso, contra la
+hora local del negocio (`America/Mazatlan`, que desde 2022 ya no cambia con el
+horario de verano), no la del servidor.
+
+| Aviso | Cuándo | Qué manda |
+|---|---|---|
+| Resumen del día | Diario, 7:00 | Pedidos por revisar, prospectos sin asignar, muestras pendientes, vencido y lo que vence esta semana |
+| Pedido atorado | Diario, con el resumen | Borradores con más de 48 h sin que el vendedor los mueva, con nombre de quién los tiene |
+| Clientes dormidos | Lunes, 8:00 | Cuentas activas sin comprar en 60 días, agrupadas por vendedor |
+
+- **Un aviso por día, aunque el proceso se reinicie tres veces esa mañana**: cada
+  uno se marca como corrido en `job_runs` con la fecha local.
+- **Si el bot estuvo apagado a la hora exacta, el aviso sale en cuanto vuelve.**
+  Tarde, pero sale — es mejor que perderlo.
+- **Cada pedido atorado avisa una sola vez** (`order_alerts`), no en cada revisión;
+  si vuelve a caer en borrador, vuelve a avisar.
+- Se apagan todos con `AVISOS=off`. Los horarios se mueven con `BRIEFING_HOUR`,
+  `DORMANT_HOUR` y `STUCK_ORDER_HOURS`.
+
+## "¿Cómo va mi pedido?"
+
+El cliente puede preguntar por sus pedidos y el bot le traduce el estatus:
+borrador → *"su vendedor lo está revisando"*, aceptada → *"en preparación"*,
+enviada → *"ya salió del almacén"*, entregada, facturada, cancelada.
+
+> **No se usa `orders.fulfillment_status`.** En el CRM dice `por_surtir` en los 85
+> pedidos, incluidos los 41 ya entregados: nadie mantiene esa columna. Repetirla
+> sería decirle al cliente que su pedido entregado sigue sin surtirse. El que sí
+> avanza es `status`. Si algún día se empieza a usar la otra, hay que volver aquí.
+
 ## Producción
 
 ```bash
