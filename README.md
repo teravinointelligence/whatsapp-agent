@@ -551,15 +551,54 @@ SQLite necesita disco persistente — Railway o Fly.io funcionan sin ajustes.
   que descartar cuando "no puede" algo que ya se programó es que el proceso siga
   con el código de antes del último `git pull`. El dato se lee al arrancar, así
   que un pull sin reiniciar sigue reportando la verdad de lo que está en memoria.
-- **Deduplicación**: por `update_id`, tanto en polling como en webhook.
+- **Comandos**: `/start`, `/reiniciar` y `/version` los contesta el servidor
+  directamente. No pasan por el modelo: son datos que él no puede verificar —el
+  commit en memoria, si de verdad se borró la conversación— y parafrasearlos
+  sería inventarlos.
+- **Deduplicación**: por `update_id`, tanto en polling como en webhook. El
+  update se marca antes de contestarlo, así que al arrancar se sueltan los que
+  quedaron marcados por encima del offset guardado: estaban en vuelo cuando
+  murió el proceso, Telegram los vuelve a entregar y hay que atenderlos en vez
+  de descartarlos por duplicados.
 - **Tandas encoladas**: si el bot estuvo caído, Telegram le entrega de golpe
   todo lo que se acumuló. De cada persona se contesta **sólo su último mensaje**;
   los anteriores se guardan en el historial y el agente responde a todo junto.
   Sin esto, volver de una caída le suelta al cliente una ráfaga de respuestas
   sueltas y desordenadas, una por mensaje.
 - **Offset del polling**: se persiste, así que un reinicio no reprocesa la cola.
+- **Una conversación no bloquea a las demás**: dentro de una tanda, cada persona
+  se atiende en serie —el orden de sus mensajes importa— pero las de personas
+  distintas corren a la par. En fila, un turno lento dejaba esperando a todos los
+  que venían detrás.
+- **Todo tiene tope de tiempo**: `fetch` y Supabase no traen timeout propio, así
+  que una conexión colgada nunca vuelve. El long polling corta 15 s después del
+  timeout que le pide a Telegram, cada consulta al CRM a los 30 s, cada llamada
+  al modelo al minuto y la respuesta completa a los dos minutos. Sin esos topes,
+  una sola conexión muerta congelaba el bot para siempre: proceso vivo, `/health`
+  en verde y ni una respuesta.
 - **Sólo chats privados**: en grupos el bot vería mensajes de terceros y no
   podría saber a nombre de quién actúa, así que los ignora.
 - **Folio**: se calcula leyendo el último `COT-<año>-NNNN`. Con dos pedidos
   simultáneos hay una carrera teórica; al volumen actual no compensa un contador
   transaccional.
+
+---
+
+## Si el bot deja de contestar
+
+En orden, de lo más común a lo más raro:
+
+1. **¿Está corriendo?** `curl http://localhost:3000/health`. Si no contesta, el
+   proceso se cayó y hay que levantarlo otra vez.
+2. **¿Con qué código?** Mándale `/version` por Telegram. Contesta con el commit
+   que tiene en memoria: si no es el último que jalaste, falta reiniciar.
+3. **¿Qué dice la bitácora?** Los fallos que dejan al cliente sin respuesta se
+   registran con prefijo: `[agent]` (el modelo o el CRM), `[telegram]` (la API
+   de Telegram), `[tool]` (una consulta que no volvió a tiempo), `[proceso]` (un
+   error suelto que antes habría tumbado el proceso).
+4. **¿Es sólo un cliente?** Mándale `/reiniciar`. Borra su conversación y
+   desvincula su número; un historial corrupto deja de estorbar.
+5. **¿Hay dos procesos?** Telegram entrega cada update una sola vez, así que dos
+   instancias contra el mismo token se roban los mensajes entre ellas y cada
+   cliente recibe respuesta a medias. En polling también aparece como
+   `409 Conflict` en la bitácora.

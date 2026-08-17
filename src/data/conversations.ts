@@ -103,6 +103,21 @@ export function claimUpdate(updateId: number): boolean {
   return markProcessed.run(updateId).changes > 0;
 }
 
+/**
+ * Suelta los updates que se marcaron como vistos pero nunca se confirmaron.
+ *
+ * El update se reclama antes de contestarlo, así que si el proceso se muere a
+ * media respuesta queda marcado sin haberse atendido. Telegram lo vuelve a
+ * entregar —no se confirmó el offset—, pero la marca lo descartaría en
+ * silencio: el cliente escribió y nunca recibe nada. Todo lo que quedó por
+ * encima del offset guardado estaba en vuelo, así que al arrancar se suelta.
+ */
+export function releaseUnconfirmedUpdates(): number {
+  return db
+    .prepare(`DELETE FROM processed_updates WHERE update_id >= ?`)
+    .run(getPollingOffset()).changes;
+}
+
 /** Teléfono que este usuario de Telegram compartió, si ya lo hizo. */
 export function getPhoneFor(userId: string): string | null {
   const row = selectPhone.get(userId) as { phone: string } | undefined;

@@ -26,7 +26,13 @@ const SHARED_PHONE_NOTE = "(el cliente acaba de compartir su número de teléfon
  * completo en cada turno, así que "olvida lo que te dije" no funciona. Borrarlo
  * tiene que ser una operación del servidor.
  */
-function handleCommand(message: IncomingMessage): string | null {
+interface CommandReply {
+  text: string;
+  /** Vuelve a mostrar el botón de compartir teléfono. */
+  requestContact?: boolean;
+}
+
+function handleCommand(message: IncomingMessage): CommandReply | null {
   const command = message.text.split(/\s+/)[0]?.toLowerCase() ?? "";
 
   switch (command) {
@@ -34,24 +40,30 @@ function handleCommand(message: IncomingMessage): string | null {
       // Arranca de cero la conversación pero conserva el teléfono ya
       // verificado: volver a pedirlo sería molesto y no aporta nada.
       clearHistory(message.userId);
-      return "Empecemos de nuevo.";
+      return { text: "Empecemos de nuevo." };
 
     case "/version":
     case "/versión":
       // No pasa por el modelo: la pregunta es qué código está corriendo, y el
       // modelo no tiene forma de saberlo.
-      return (
-        `Código en memoria: ${RUNNING_COMMIT}\n` +
-        `Herramientas cargadas: ${tools.length}.\n` +
-        "Si esto no coincide con lo último que jalaste, falta reiniciar el proceso."
-      );
+      return {
+        text:
+          `Código en memoria: ${RUNNING_COMMIT}\n` +
+          `Herramientas cargadas: ${tools.length}.\n` +
+          "Si esto no coincide con lo último que jalaste, falta reiniciar el proceso.",
+      };
 
     case "/reiniciar":
     case "/reset":
       // Además desvincula el número, para cuando se compartió el equivocado.
       clearHistory(message.userId);
       forgetIdentity(message.userId);
-      return "Listo, borré la conversación y tu número. Empecemos de cero.";
+      return {
+        text: "Listo, borré la conversación y tu número. Empecemos de cero.",
+        // Acabamos de olvidar su teléfono, así que el botón tiene que volver:
+        // sin él no hay forma de que lo comparta otra vez.
+        requestContact: true,
+      };
 
     default:
       return null;
@@ -92,13 +104,28 @@ export async function handleMessage(
   // Los comandos se aplican aunque el mensaje no se conteste: un /start a
   // media tanda tiene que borrar la conversación igual.
   const command = handleCommand(message);
-  const text = command ?? message.text ?? (message.sharedPhone ? SHARED_PHONE_NOTE : "");
+
+  if (command !== null) {
+    // La respuesta del comando se manda tal cual. Pasarla por el modelo sería
+    // pedirle que parafrasee un dato que él no puede verificar: /version
+    // contestaría cualquier cosa menos el commit que está corriendo.
+    if (reply) {
+      await sendText(message.chatId, command.text, {
+        requestContact: command.requestContact,
+      }).catch((error: unknown) => {
+        console.error("[telegram] no se pudo contestar el comando:", error);
+      });
+    }
+    return;
+  }
+
+  const text = message.text || (message.sharedPhone ? SHARED_PHONE_NOTE : "");
   if (!text) return;
 
   if (!reply) {
     // Sin llamar al modelo: el mensaje queda en el historial y el agente lo lee
     // cuando conteste el último de la tanda.
-    if (!command) appendMessage(message.userId, "user", text);
+    appendMessage(message.userId, "user", text);
     return;
   }
 

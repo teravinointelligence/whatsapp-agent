@@ -11,10 +11,63 @@ import {
   getPhoneFor,
 } from "../data/conversations.js";
 
-const client = new Anthropic({ apiKey: config.anthropic.apiKey });
+/**
+ * El SDK espera 10 minutos por defecto y reintenta dos veces. En un chat eso no
+ * es "lento": es un cliente que nunca recibe respuesta y un turno que bloquea
+ * al resto. Preferimos cortar pronto y disculparnos.
+ */
+const client = new Anthropic({
+  apiKey: config.anthropic.apiKey,
+  timeout: 60_000,
+  maxRetries: 1,
+});
 
 /** Tope de vueltas del bucle para que un modelo atorado no gire sin fin. */
 const MAX_TURNS = 8;
+
+/**
+ * Tope de la respuesta completa, herramientas incluidas.
+ *
+ * El tope por llamada no alcanza: ocho vueltas lentas suman minutos igual. Al
+ * vencerse se contesta con lo que haya en vez de dejar al cliente esperando.
+ */
+const TOTAL_BUDGET_MS = 120_000;
+
+/**
+ * Tope de cada consulta al CRM. Supabase tampoco trae timeout propio, así que
+ * una consulta colgada dejaría el turno esperando para siempre.
+ */
+const TOOL_TIMEOUT_MS = 30_000;
+
+async function runToolWithTimeout(
+  name: string,
+  input: unknown,
+  context: ToolContext,
+): Promise<{ content: string; isError: boolean }> {
+  let timer: NodeJS.Timeout | undefined;
+
+  try {
+    return await Promise.race([
+      runTool(name, input, context),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`la herramienta ${name} no contestó a tiempo`)),
+          TOOL_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } catch (error) {
+    console.error(`[tool] ${name} falló:`, error);
+    return {
+      content:
+        "La consulta al CRM no respondió. Dile al cliente que hubo un problema " +
+        "con el sistema y ofrécele pasarlo con alguien del equipo. No inventes el dato.",
+      isError: true,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** Contexto vacío para quien todavía no comparte su teléfono. */
 const NO_ACCOUNT: AccountContext = {
@@ -90,9 +143,15 @@ export async function respondTo(
   }
 
   const context: ToolContext = { account, staff, phone, userId };
+  const deadline = Date.now() + TOTAL_BUDGET_MS;
   let reply = "";
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
+    if (Date.now() > deadline) {
+      console.warn(`[agent] se agotó el tiempo atendiendo a ${userId}`);
+      break;
+    }
+
     // `output_config.effort` es GA en la API pero el SDK publicado todavía no lo
     // tipa, así que lo declaramos aparte en vez de esperar al tipado.
     const params: Anthropic.MessageCreateParamsNonStreaming & {
@@ -137,7 +196,7 @@ export async function respondTo(
     // todos los resultados vuelven en un solo turno de usuario.
     const results = await Promise.all(
       toolUses.map(async (block) => {
-        const result = await runTool(block.name, block.input, context);
+        const result = await runToolWithTimeout(block.name, block.input, context);
         return {
           type: "tool_result" as const,
           tool_use_id: block.id,

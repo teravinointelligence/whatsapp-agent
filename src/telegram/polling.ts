@@ -1,5 +1,9 @@
 import { config } from "../config.js";
-import { getPollingOffset, setPollingOffset } from "../data/conversations.js";
+import {
+  getPollingOffset,
+  releaseUnconfirmedUpdates,
+  setPollingOffset,
+} from "../data/conversations.js";
 import { deleteWebhook, getUpdates } from "./client.js";
 import { handleMessage } from "./handler.js";
 import { parseUpdate } from "./updates.js";
@@ -29,6 +33,27 @@ export function collapseBatch(
   }));
 }
 
+/**
+ * Agrupa la tanda por persona, conservando el orden de cada conversación.
+ *
+ * Entre personas distintas no hay orden que respetar, y atenderlas en fila hace
+ * que un turno lento —una consulta pesada al CRM, un modelo tardado— deje sin
+ * respuesta a todos los que venían detrás.
+ */
+export function groupByUser<T extends { message: IncomingMessage }>(
+  batch: T[],
+): T[][] {
+  const groups = new Map<string, T[]>();
+
+  for (const item of batch) {
+    const group = groups.get(item.message.userId);
+    if (group) group.push(item);
+    else groups.set(item.message.userId, [item]);
+  }
+
+  return [...groups.values()];
+}
+
 export function stopPolling(): void {
   running = false;
 }
@@ -50,6 +75,13 @@ export async function startPolling(): Promise<void> {
   let offset = getPollingOffset();
   let backoff = 1000;
 
+  // Lo que quedó a medio contestar cuando murió el proceso anterior vuelve a
+  // entrar, en vez de descartarse por duplicado sin haberse atendido nunca.
+  const soltados = releaseUnconfirmedUpdates();
+  if (soltados > 0) {
+    console.log(`Se reabrieron ${soltados} mensaje(s) que quedaron sin contestar.`);
+  }
+
   console.log("Escuchando por long polling. Ctrl+C para salir.");
 
   while (running) {
@@ -64,11 +96,22 @@ export async function startPolling(): Promise<void> {
         if (message) batch.push(message);
       }
 
-      for (const { message, reply } of collapseBatch(batch)) {
-        // En serie a propósito: el orden importa y un /start a media tanda
-        // tiene que aplicarse antes de lo que venga después.
-        await handleMessage(message, { reply });
-      }
+      // Cada conversación se atiende en serie —el orden importa y un /start a
+      // media tanda tiene que aplicarse antes de lo que venga después— pero las
+      // de personas distintas corren a la par.
+      await Promise.all(
+        groupByUser(collapseBatch(batch)).map(async (conversation) => {
+          for (const { message, reply } of conversation) {
+            try {
+              await handleMessage(message, { reply });
+            } catch (error) {
+              // Un fallo con una persona no puede dejar sin atender al resto de
+              // la tanda ni frenar el polling.
+              console.error(`[telegram] fallo atendiendo a ${message.userId}:`, error);
+            }
+          }
+        }),
+      );
 
       if (updates.length > 0) setPollingOffset(offset);
     } catch (error) {

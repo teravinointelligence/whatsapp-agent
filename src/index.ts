@@ -5,7 +5,27 @@ import { startPolling } from "./telegram/polling.js";
 import { router as telegramRouter } from "./telegram/webhook.js";
 import { startScheduler } from "./scheduler.js";
 
+/**
+ * Un error suelto no puede matar al bot.
+ *
+ * Node tumba el proceso ante una promesa rechazada sin dueño, y aquí eso
+ * significa que el bot deja de contestarle a todo el mundo por un fallo de una
+ * sola conversación. Como suele correr sin nadie que lo levante otra vez, es
+ * preferible dejar constancia en la bitácora y seguir atendiendo.
+ */
+function keepAlive(): void {
+  process.on("unhandledRejection", (reason: unknown) => {
+    console.error("[proceso] promesa rechazada sin atender:", reason);
+  });
+
+  process.on("uncaughtException", (error: unknown) => {
+    console.error("[proceso] excepción sin atrapar:", error);
+  });
+}
+
 async function main(): Promise<void> {
+  keepAlive();
+
   const me = await getMe();
   console.log(`Bot conectado: @${me.username ?? me.id}`);
 

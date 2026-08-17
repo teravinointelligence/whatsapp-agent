@@ -34,5 +34,11 @@ router.post("/telegram", (req: Request, res: Response) => {
   res.sendStatus(200);
 
   const message = parseUpdate(req.body as TelegramUpdate);
-  if (message) void handleMessage(message);
+  if (message) {
+    // Sin este catch, un fallo aquí sería una promesa rechazada sin dueño: en
+    // Node eso tumba el proceso, y el bot deja de contestarle a todos.
+    void handleMessage(message).catch((error: unknown) => {
+      console.error(`[telegram] fallo atendiendo a ${message.userId}:`, error);
+    });
+  }
 });

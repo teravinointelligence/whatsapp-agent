@@ -48,12 +48,37 @@ function splitBody(text: string): string[] {
   return chunks;
 }
 
-async function call<T = unknown>(method: string, body: unknown): Promise<T> {
-  const response = await fetch(`${BASE}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+/**
+ * Tope para las llamadas normales a la API de Telegram.
+ *
+ * `fetch` no trae timeout: si la conexión se queda a medias —cosa que pasa en
+ * cualquier nube que corta los sockets ociosos— la promesa nunca se resuelve.
+ * Sin este tope, un `sendMessage` colgado deja al bot mudo sin un solo error en
+ * la bitácora.
+ */
+const CALL_TIMEOUT_MS = 20_000;
+
+async function call<T = unknown>(
+  method: string,
+  body: unknown,
+  timeoutMs: number = CALL_TIMEOUT_MS,
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error(
+        `Telegram ${method} no contestó en ${Math.round(timeoutMs / 1000)} s.`,
+      );
+    }
+    throw error;
+  }
 
   const payload = (await response.json().catch(() => ({}))) as {
     ok?: boolean;
@@ -119,16 +144,26 @@ export async function sendTyping(chatId: number): Promise<void> {
 /**
  * Long polling. Devuelve cuando hay updates o cuando vence el timeout.
  * `offset` confirma los updates anteriores: Telegram los borra de su cola.
+ *
+ * El tope propio va 15 s por encima del que le pedimos a Telegram: si la
+ * conexión se queda colgada, la petición se corta, el bucle registra el fallo y
+ * vuelve a preguntar. Sin él, una sola conexión muerta congela el polling para
+ * siempre —el proceso sigue vivo y el /health en verde, pero el bot no vuelve a
+ * contestar nunca—, que es justo la falla más difícil de diagnosticar.
  */
 export async function getUpdates(
   offset: number,
   timeoutSeconds: number,
 ): Promise<TelegramUpdate[]> {
-  return call<TelegramUpdate[]>("getUpdates", {
-    offset,
-    timeout: timeoutSeconds,
-    allowed_updates: ["message"],
-  });
+  return call<TelegramUpdate[]>(
+    "getUpdates",
+    {
+      offset,
+      timeout: timeoutSeconds,
+      allowed_updates: ["message"],
+    },
+    (timeoutSeconds + 15) * 1000,
+  );
 }
 
 export async function setWebhook(url: string, secretToken: string): Promise<void> {
