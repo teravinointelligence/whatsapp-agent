@@ -54,6 +54,7 @@ buscar_productos  crear_pedido  consultar_pedidos
 | `buscar_cuenta` | **Sólo administración**: busca cuentas por nombre o número de cliente |
 | `estado_de_cuenta` | **Sólo administración**: saldo, vencido, facturas y último envío |
 | `consultar_muestras` | **Sólo administración**: solicitudes de muestra por revisar |
+| `consultar_agenda` | **Sólo administración**: la agenda del equipo — citas con hora, pendientes con fecha y seguimientos |
 | `consultar_prospectos` | **Sólo administración**: lista los prospectos captados |
 | `asignar_prospecto` | **Sólo administración**: se lo asigna a un vendedor |
 
@@ -255,6 +256,33 @@ Nadie levanta pedidos a nombre de clientes por este canal; eso sigue en el CRM.
 
 Dar de alta a alguien es capturar su número en `sales_reps.whatsapp`; retirarle el
 acceso es `active = false`. Sin tocar código.
+
+---
+
+## La agenda del equipo
+
+La administración puede preguntarle al bot qué trae el equipo: *"¿qué tiene
+Yamile hoy?"*, *"¿qué visitas hay esta semana?"*, *"¿cómo va la agenda?"*.
+
+La agenda no es una tabla del CRM, son tres cosas que el vendedor ve juntas en
+su día:
+
+| Qué | De dónde sale |
+|---|---|
+| **Citas con hora** — visitas, degustaciones, llamadas | `activities` con `status = 'agendada'` |
+| **Pendientes con fecha** — cobranza, cuentas inactivas, pedidos por revisar | `rep_tasks` con `status = 'pendiente'` |
+| **Seguimientos comprometidos** — "mandarle la cotización el jueves" | `activities.next_step` sin marcar como hecho |
+
+- **Las horas salen en la hora de Los Cabos.** En la base están en UTC y el día
+  se recorta según `TIMEZONE`, no según el reloj del servidor: un bot desplegado
+  en otro huso sigue contestando el día del vendedor.
+- **Lo vencido entra aunque su fecha ya haya pasado**, y viene marcado. Para eso
+  se pregunta por la agenda de alguien: lo atrasado es justo lo que importa.
+- **Diez renglones por bloque**, y lo que no cupo se reporta como número. Una
+  lista truncada en silencio se lee como si estuviera completa.
+- **Sin vendedor da todo el equipo**, saltándose a quien no trae nada. Con
+  vendedor contesta aunque venga vacía: "no trae nada" es una respuesta.
+- **Sólo lectura.** Agendar, mover o cancelar una visita se hace en el CRM.
 
 ---
 

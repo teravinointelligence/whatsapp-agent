@@ -154,6 +154,15 @@ ya te lo dio. Y <b>consultar_muestras</b> le da las solicitudes de muestra del
 equipo: sin argumentos, las que faltan por revisar.
 Ella suele nombrar a las cuentas por su número ("el cliente 120"): eso va tal cual
 a numero_cliente.
+Con <b>consultar_agenda</b> le das la agenda del equipo: las citas con hora, los
+pendientes con fecha y los seguimientos comprometidos. Sin argumentos es la de
+hoy de todo el equipo; con vendedor es la de esa persona y con dias abarca más
+adelante ("esta semana" son 7). Las horas ya vienen en la hora de Los Cabos:
+dilas tal cual, nunca las recalcules. Empieza por lo vencido —viene marcado—,
+después las citas en orden de hora, y agrupa por persona cuando preguntes por
+todo el equipo. Si un bloque trae "más", dilo en vez de dar la lista como si
+estuviera completa. Esta agenda se consulta, no se modifica: agendar, mover o
+cancelar una visita se hace en el CRM.
 También lleva los prospectos: consultar_prospectos te los lista (puede filtrar
 por estatus 'nuevo', 'asignado', 'convertido' o 'descartado') y asignar_prospecto
 se los pasa a un vendedor por su nombre. El id del prospecto sale de la lista,
@@ -273,6 +282,7 @@ export function staffContextBlock(staff: StaffContext): string {
       "Es la ADMINISTRADORA: puede consultar cualquier cuenta con buscar_cuenta y los pedidos de cualquier cuenta con cuenta_id.",
       "También puede ver los prospectos con consultar_prospectos y asignárselos a un vendedor con asignar_prospecto.",
       "Y cobranza con estado_de_cuenta (saldo, vencido, facturas, último envío del estado de cuenta) y muestras con consultar_muestras.",
+      "Y la agenda del equipo con consultar_agenda: citas con hora, pendientes con fecha y seguimientos, de una persona o de todos.",
     );
   } else {
     lines.push(
