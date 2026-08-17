@@ -100,6 +100,44 @@ try {
 // Lo que el bot alcanzó a registrar. Si lleva horas sin ver un mensaje y los
 // clientes están escribiendo, el problema está antes del modelo.
 console.log("\n── El proceso ──");
+
+// El /health lo sirve el proceso que está atendiendo, no éste: es la única
+// forma de saber desde aquí si su bucle sigue hablando con Telegram.
+try {
+  const salud = (await conTope(
+    "/health",
+    fetch(`http://localhost:${config.port}/health`).then((r) => r.json()),
+    5_000,
+  )) as {
+    commit?: string;
+    lastPollAt?: string | null;
+    failures?: number;
+    lastError?: string | null;
+  };
+
+  console.log(`${OK} El proceso responde en /health.`);
+  if (salud.commit) console.log(`   Código que está corriendo: ${salud.commit}`);
+
+  if (salud.lastPollAt) {
+    console.log(`   Última respuesta de Telegram: ${hace(salud.lastPollAt.replace("T", " ").slice(0, 19))}`);
+  } else {
+    console.log(`   ${AVISO} Todavía no ha completado una vuelta de polling.`);
+  }
+
+  if (salud.failures) {
+    alerta(
+      `El bucle lleva ${salud.failures} fallo(s) seguido(s): ${salud.lastError ?? "sin detalle"}`,
+    );
+  }
+} catch {
+  // No es concluyente: puede correr en otro puerto, en otra máquina o en modo
+  // webhook detrás de un proxy. Sólo se apunta.
+  console.log(
+    `${AVISO} Nadie contesta en http://localhost:${config.port}/health. ` +
+      "Si el bot debería estar corriendo aquí, está caído.",
+  );
+}
+
 console.log(`Offset del polling guardado: ${getPollingOffset()}`);
 
 const ultimo = db

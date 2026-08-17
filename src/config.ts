@@ -113,6 +113,16 @@ export const config = {
 
   /** SQLite guarda sólo el historial del chat; el negocio vive en el CRM. */
   databasePath: optional("DATABASE_PATH", "./data/agent.db"),
+
+  /**
+   * URL a la que el bot le hace ping cada minuto para decir que sigue vivo
+   * (healthchecks.io, Better Stack o similar).
+   *
+   * Es la única forma de enterarse de una caída dura: un proceso muerto no
+   * puede avisar de su propia muerte, así que quien avisa tiene que estar
+   * afuera y darse cuenta de que dejamos de latir. Vacío la apaga.
+   */
+  heartbeatUrl: process.env.HEARTBEAT_URL ?? "",
 } as const;
 
 /**

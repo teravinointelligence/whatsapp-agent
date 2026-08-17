@@ -11,14 +11,15 @@ import {
   getPhoneFor,
 } from "../data/conversations.js";
 
-/**
- * El SDK espera 10 minutos por defecto y reintenta dos veces. En un chat eso no
- * es "lento": es un cliente que nunca recibe respuesta y un turno que bloquea
- * al resto. Preferimos cortar pronto y disculparnos.
- */
 const client = new Anthropic({
   apiKey: config.anthropic.apiKey,
-  timeout: 60_000,
+  // El SDK espera 10 minutos por defecto. En un chat eso es lo mismo que no
+  // contestar, y como los mensajes se atienden en serie, una llamada colgada
+  // deja mudo al bot para todos.
+  timeout: 90_000,
+  // Y reintenta dos veces por su cuenta: con el tope de arriba, tres intentos
+  // seguidos rebasan el plazo del turno completo y el cliente se queda sin
+  // nada. Un reintento cabe; dos no.
   maxRetries: 1,
 });
 
@@ -26,16 +27,19 @@ const client = new Anthropic({
 const MAX_TURNS = 8;
 
 /**
- * Tope de la respuesta completa, herramientas incluidas.
+ * Tope de tiempo para resolver un turno completo.
  *
- * El tope por llamada no alcanza: ocho vueltas lentas suman minutos igual. Al
- * vencerse se contesta con lo que haya en vez de dejar al cliente esperando.
+ * Ocho vueltas con herramientas pueden sumar minutos, y a esas alturas el
+ * cliente ya se fue. Vencido el plazo se corta y se contesta algo honesto:
+ * quedarse callado es la peor de las salidas.
  */
-const TOTAL_BUDGET_MS = 120_000;
+const DEADLINE_MS = 150_000;
 
 /**
  * Tope de cada consulta al CRM. Supabase tampoco trae timeout propio, así que
- * una consulta colgada dejaría el turno esperando para siempre.
+ * una consulta colgada se llevaría el turno entero por delante. Cortando aquí,
+ * el modelo recibe el fallo como resultado de la herramienta y todavía alcanza
+ * a contestarle algo al cliente.
  */
 const TOOL_TIMEOUT_MS = 30_000;
 
@@ -143,12 +147,14 @@ export async function respondTo(
   }
 
   const context: ToolContext = { account, staff, phone, userId };
-  const deadline = Date.now() + TOTAL_BUDGET_MS;
+  const startedAt = Date.now();
   let reply = "";
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    if (Date.now() > deadline) {
-      console.warn(`[agent] se agotó el tiempo atendiendo a ${userId}`);
+    if (turn > 0 && Date.now() - startedAt > DEADLINE_MS) {
+      console.warn(`[agent] ${userId}: se acabó el plazo en la vuelta ${turn}.`);
+      reply =
+        "Esto me está tomando más de lo normal. Déjame confirmarlo con el equipo y te contesto en un momento.";
       break;
     }
 

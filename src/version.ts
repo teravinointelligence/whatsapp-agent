@@ -22,6 +22,15 @@ function readCommit(): string {
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
   } catch {
+    // En un despliegue no hay repositorio: se construye desde el código y el
+    // .git se queda fuera. Railway deja el commit en el entorno, que para
+    // esto sirve igual —saber qué se está corriendo—.
+    const sha = process.env.RAILWAY_GIT_COMMIT_SHA;
+    if (sha) {
+      const message = process.env.RAILWAY_GIT_COMMIT_MESSAGE;
+      return `${sha.slice(0, 7)}${message ? ` · ${message.split("\n")[0]}` : ""} (desplegado)`;
+    }
+
     return "sin repositorio git a la vista";
   }
 }
