@@ -602,6 +602,12 @@ polling`. Después, `/version` en el chat dice qué commit quedó desplegado.
   que sin esto una sola llamada colgada dejaba mudo al bot para todos.
 - **HTML rechazado**: si Telegram devuelve 400 por una etiqueta mal formada, el
   mensaje se reenvía en texto plano en vez de perderse.
+- **Red inestable**: los envíos se reintentan hasta tres veces cuando la
+  conexión se corta (`ECONNRESET`, timeout al abrir el socket). Un error de la
+  API —400, 403— no se reintenta: es una respuesta, y repetirla daría lo mismo.
+  El reintento acepta un riesgo a cambio: si la conexión se corta después de que
+  Telegram recibió el mensaje, el cliente puede verlo dos veces. Perder la
+  respuesta se nota más que verla repetida.
 - **Arranque sin red**: el bot espera y reintenta —5 s, 10 s, 20 s, hasta un
   minuto— en vez de morir. Una laptop que despierta antes que el wifi, o un
   internet que parpadea, ya no dejan al bot apagado hasta que alguien se da

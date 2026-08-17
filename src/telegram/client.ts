@@ -70,37 +70,81 @@ export class TelegramError extends Error {
 const CALL_TIMEOUT_MS = 30_000;
 
 /**
+ * Intentos ante un fallo de red, contando el primero.
+ *
+ * Una conexión que se corta a media llamada —ECONNRESET, un timeout al abrir
+ * el socket— no dice nada sobre el mensaje: sólo que ese intento no llegó. En
+ * una red inestable, rendirse al primer tropiezo le cuesta al cliente su
+ * respuesta.
+ */
+const CALL_ATTEMPTS = 3;
+
+interface CallOptions {
+  timeoutMs?: number;
+  /** 1 para no reintentar: el long polling ya trae su propio backoff. */
+  attempts?: number;
+}
+
+/**
+ * Un error de la API tiene código y es una respuesta: reintentarlo repetiría el
+ * mismo rechazo. Uno de red no llegó a ser respuesta, y ése sí se reintenta.
+ */
+function isNetworkError(error: unknown): boolean {
+  return !(error instanceof TelegramError);
+}
+
+/**
  * `fetch` no trae timeout: sin esto, una conexión que se queda a medias cuelga
  * la llamada para siempre. Y como el polling procesa los mensajes en serie, un
  * envío colgado deja al bot mudo para todos, no sólo para quien escribió.
+ *
+ * El reintento asume que un mensaje repetido es mejor que un mensaje perdido:
+ * si la conexión se corta después de que Telegram recibió el envío, el cliente
+ * puede ver la respuesta dos veces. Con una red inestable, perder la respuesta
+ * es lo que de verdad se nota.
  */
 async function call<T = unknown>(
   method: string,
   body: unknown,
-  timeoutMs: number = CALL_TIMEOUT_MS,
+  options: CallOptions = {},
 ): Promise<T> {
-  const response = await fetch(`${BASE}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const { timeoutMs = CALL_TIMEOUT_MS, attempts = CALL_ATTEMPTS } = options;
 
-  const payload = (await response.json().catch(() => ({}))) as {
-    ok?: boolean;
-    result?: T;
-    description?: string;
-  };
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetch(`${BASE}/${method}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
 
-  if (!response.ok || !payload.ok) {
-    throw new TelegramError(
-      method,
-      response.status,
-      payload.description ?? "sin detalle",
-    );
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        result?: T;
+        description?: string;
+      };
+
+      if (!response.ok || !payload.ok) {
+        throw new TelegramError(
+          method,
+          response.status,
+          payload.description ?? "sin detalle",
+        );
+      }
+
+      return payload.result as T;
+    } catch (error) {
+      if (attempt >= attempts || !isNetworkError(error)) throw error;
+
+      console.warn(
+        `[telegram] ${method}: la red falló en el intento ${attempt} ` +
+          `(${error instanceof Error ? error.message : String(error)}). Reintento.`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+    }
   }
-
-  return payload.result as T;
 }
 
 export interface SendOptions {
@@ -177,7 +221,9 @@ function isParseError(error: unknown): boolean {
 
 /** Muestra "escribiendo…" mientras el agente piensa. Dura unos 5 segundos. */
 export async function sendTyping(chatId: number): Promise<void> {
-  await call("sendChatAction", { chat_id: chatId, action: "typing" });
+  // Sin reintento: es un adorno y su fallo ya se ignora. Insistir sólo le
+  // agregaría segundos de espera al cliente antes de la respuesta de verdad.
+  await call("sendChatAction", { chat_id: chatId, action: "typing" }, { attempts: 1 });
 }
 
 /**
@@ -195,9 +241,14 @@ export async function getUpdates(
       timeout: timeoutSeconds,
       allowed_updates: ["message"],
     },
-    // Margen sobre el long polling: la petición se queda abierta a propósito,
-    // así que el timeout sólo tiene que cortar la que se quedó colgada.
-    (timeoutSeconds + 15) * 1000,
+    {
+      // Margen sobre el long polling: la petición se queda abierta a propósito,
+      // así que el timeout sólo tiene que cortar la que se quedó colgada.
+      timeoutMs: (timeoutSeconds + 15) * 1000,
+      // Sin reintento propio: el bucle ya trae backoff y lleva la cuenta de los
+      // fallos para el aviso. Reintentar aquí escondería esa cuenta.
+      attempts: 1,
+    },
   );
 }
 
