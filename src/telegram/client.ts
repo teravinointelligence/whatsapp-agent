@@ -182,3 +182,23 @@ export async function deleteWebhook(): Promise<void> {
 export async function getMe(): Promise<{ id: number; username?: string }> {
   return call<{ id: number; username?: string }>("getMe", {});
 }
+
+export interface WebhookInfo {
+  /** Vacío si no hay webhook registrado. */
+  url: string;
+  /** Updates esperando en la cola de Telegram, sin entregar. */
+  pending_update_count: number;
+  last_error_date?: number;
+  last_error_message?: string;
+  last_synchronization_error_date?: number;
+}
+
+/**
+ * Lo que Telegram sabe de nuestra entrega. Es la única forma de ver su lado del
+ * canal: si hay updates encolados sin recoger, cuál fue el último error que le
+ * dio entregarnos algo, y si quedó un webhook registrado —que en modo polling
+ * hace que `getUpdates` devuelva 409 y el bot no reciba nada—.
+ */
+export async function getWebhookInfo(): Promise<WebhookInfo> {
+  return call<WebhookInfo>("getWebhookInfo", {});
+}

@@ -425,6 +425,9 @@ npm run chat                    # simula a alguien no identificado
 Usa el mismo bucle y el mismo CRM. **Los pedidos que levantes se crean de verdad**
 — bórralos después o usa un teléfono que no esté en el CRM.
 
+Y si el bot dejó de contestar, `npm run doctor` dice dónde se está cortando el
+canal: ver [Si el bot deja de contestar](#si-el-bot-deja-de-contestar).
+
 ---
 
 ## Inventarios: de CONTPAQ al CRM, solos
@@ -586,19 +589,37 @@ SQLite necesita disco persistente — Railway o Fly.io funcionan sin ajustes.
 
 ## Si el bot deja de contestar
 
-En orden, de lo más común a lo más raro:
+Lo primero, **en la máquina donde corre el bot**:
 
-1. **¿Está corriendo?** `curl http://localhost:3000/health`. Si no contesta, el
-   proceso se cayó y hay que levantarlo otra vez.
-2. **¿Con qué código?** Mándale `/version` por Telegram. Contesta con el commit
-   que tiene en memoria: si no es el último que jalaste, falta reiniciar.
-3. **¿Qué dice la bitácora?** Los fallos que dejan al cliente sin respuesta se
-   registran con prefijo: `[agent]` (el modelo o el CRM), `[telegram]` (la API
-   de Telegram), `[tool]` (una consulta que no volvió a tiempo), `[proceso]` (un
-   error suelto que antes habría tumbado el proceso).
-4. **¿Es sólo un cliente?** Mándale `/reiniciar`. Borra su conversación y
-   desvincula su número; un historial corrupto deja de estorbar.
-5. **¿Hay dos procesos?** Telegram entrega cada update una sola vez, así que dos
-   instancias contra el mismo token se roban los mensajes entre ellas y cada
-   cliente recibe respuesta a medias. En polling también aparece como
-   `409 Conflict` en la bitácora.
+```bash
+npm run doctor
+```
+
+Sólo lee, así que se puede correr con el bot encendido. Pregunta las cuatro
+cosas que pueden dejar mudo al canal y dice cuál está fallando:
+
+| Qué revisa | Qué delata |
+|---|---|
+| `getMe` | Si el token sirve |
+| `getWebhookInfo` | Mensajes encolados en Telegram que nadie recoge, el último error que le dio entregarnos algo, y si quedó un webhook registrado —que en polling hace que `getUpdates` devuelva 409 y el bot no reciba **nada**— |
+| SQLite | Hace cuánto que el bot no registra un mensaje, y qué conversaciones quedaron con el cliente hablando solo |
+| CRM y modelo | Si responden desde esa máquina |
+
+La lectura importante es **dónde se corta**:
+
+- **Hay mensajes encolados en Telegram** → el proceso no los está recogiendo:
+  está caído o el polling se congeló. Reinícialo.
+- **Los mensajes sí están en SQLite pero sin respuesta** → llegaron bien; el
+  corte está en el modelo, en el CRM o al mandar la respuesta. La bitácora lo
+  dice con prefijo: `[agent]`, `[telegram]`, `[tool]`, `[proceso]`.
+- **Todo responde y aun así el cliente no recibe nada** → lo más probable es que
+  el proceso que atiende no sea el que crees. Dos instancias contra el mismo
+  token se roban los mensajes entre ellas (`409 Conflict` en la bitácora).
+
+Y de paso:
+
+- **¿Está vivo?** `curl http://localhost:3000/health`.
+- **¿Con qué código?** Mándale `/version` por Telegram: contesta con el commit
+  que tiene en memoria. Si no es el último que jalaste, falta reiniciar.
+- **¿Es sólo un cliente?** Mándale `/reiniciar`: borra su conversación y
+  desvincula su número, por si el historial es lo que estorba.
