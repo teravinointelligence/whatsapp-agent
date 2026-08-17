@@ -12,7 +12,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "chat": "tsx src/scripts/chat.ts"
+    "chat": "tsx src/scripts/chat.ts",
+    "doctor": "tsx src/scripts/doctor.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",

@@ -17,6 +17,10 @@ const client = new Anthropic({
   // contestar, y como los mensajes se atienden en serie, una llamada colgada
   // deja mudo al bot para todos.
   timeout: 90_000,
+  // Y reintenta dos veces por su cuenta: con el tope de arriba, tres intentos
+  // seguidos rebasan el plazo del turno completo y el cliente se queda sin
+  // nada. Un reintento cabe; dos no.
+  maxRetries: 1,
 });
 
 /** Tope de vueltas del bucle para que un modelo atorado no gire sin fin. */
@@ -30,6 +34,44 @@ const MAX_TURNS = 8;
  * quedarse callado es la peor de las salidas.
  */
 const DEADLINE_MS = 150_000;
+
+/**
+ * Tope de cada consulta al CRM. Supabase tampoco trae timeout propio, así que
+ * una consulta colgada se llevaría el turno entero por delante. Cortando aquí,
+ * el modelo recibe el fallo como resultado de la herramienta y todavía alcanza
+ * a contestarle algo al cliente.
+ */
+const TOOL_TIMEOUT_MS = 30_000;
+
+async function runToolWithTimeout(
+  name: string,
+  input: unknown,
+  context: ToolContext,
+): Promise<{ content: string; isError: boolean }> {
+  let timer: NodeJS.Timeout | undefined;
+
+  try {
+    return await Promise.race([
+      runTool(name, input, context),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`la herramienta ${name} no contestó a tiempo`)),
+          TOOL_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } catch (error) {
+    console.error(`[tool] ${name} falló:`, error);
+    return {
+      content:
+        "La consulta al CRM no respondió. Dile al cliente que hubo un problema " +
+        "con el sistema y ofrécele pasarlo con alguien del equipo. No inventes el dato.",
+      isError: true,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** Contexto vacío para quien todavía no comparte su teléfono. */
 const NO_ACCOUNT: AccountContext = {
@@ -160,7 +202,7 @@ export async function respondTo(
     // todos los resultados vuelven en un solo turno de usuario.
     const results = await Promise.all(
       toolUses.map(async (block) => {
-        const result = await runTool(block.name, block.input, context);
+        const result = await runToolWithTimeout(block.name, block.input, context);
         return {
           type: "tool_result" as const,
           tool_use_id: block.id,

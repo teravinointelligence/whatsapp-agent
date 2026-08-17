@@ -425,6 +425,9 @@ npm run chat                    # simula a alguien no identificado
 Usa el mismo bucle y el mismo CRM. **Los pedidos que levantes se crean de verdad**
 — bórralos después o usa un teléfono que no esté en el CRM.
 
+Y si el bot dejó de contestar, `npm run doctor` dice dónde se está cortando el
+canal: ver [Cuando el bot no contesta](#cuando-el-bot-no-contesta).
+
 ---
 
 ## Inventarios: de CONTPAQ al CRM, solos
@@ -584,22 +587,36 @@ polling`. Después, `/version` en el chat dice qué commit quedó desplegado.
   que descartar cuando "no puede" algo que ya se programó es que el proceso siga
   con el código de antes del último `git pull`. El dato se lee al arrancar, así
   que un pull sin reiniciar sigue reportando la verdad de lo que está en memoria.
-- **Deduplicación**: por `update_id`, tanto en polling como en webhook.
+- **Comandos**: `/start`, `/reiniciar` y `/version` los contesta el servidor
+  directamente. No pasan por el modelo: son datos que él no puede verificar —el
+  commit en memoria, si de verdad se borró la conversación— y parafrasearlos
+  sería inventarlos.
+- **Deduplicación**: por `update_id`, tanto en polling como en webhook. El
+  update se marca antes de contestarlo, así que al arrancar se sueltan los que
+  quedaron marcados por encima del offset guardado: estaban en vuelo cuando
+  murió el proceso, Telegram los vuelve a entregar y hay que atenderlos en vez
+  de descartarlos por duplicados.
 - **Tandas encoladas**: si el bot estuvo caído, Telegram le entrega de golpe
   todo lo que se acumuló. De cada persona se contesta **sólo su último mensaje**;
   los anteriores se guardan en el historial y el agente responde a todo junto.
   Sin esto, volver de una caída le suelta al cliente una ráfaga de respuestas
   sueltas y desordenadas, una por mensaje.
 - **Offset del polling**: se persiste, así que un reinicio no reprocesa la cola.
+- **Una conversación no bloquea a las demás**: dentro de una tanda, cada persona
+  se atiende en serie —el orden de sus mensajes importa— pero las de personas
+  distintas corren a la par. En fila, un turno lento dejaba esperando a todos los
+  que venían detrás.
 - **Sólo chats privados**: en grupos el bot vería mensajes de terceros y no
   podría saber a nombre de quién actúa, así que los ignora.
 - **Folio**: se calcula leyendo el último `COT-<año>-NNNN`. Con dos pedidos
   simultáneos hay una carrera teórica; al volumen actual no compensa un contador
   transaccional.
 - **Timeouts**: ninguna llamada espera para siempre. Telegram corta a los 30 s
-  (el long polling, a `TELEGRAM_POLL_TIMEOUT + 15`), cada llamada al modelo a los
-  90 s y el turno completo a los 150 s. Los mensajes se atienden en serie, así
-  que sin esto una sola llamada colgada dejaba mudo al bot para todos.
+  (el long polling, a `TELEGRAM_POLL_TIMEOUT + 15`), cada consulta al CRM a los
+  30 s, cada llamada al modelo a los 90 s, el turno completo a los 150 s y el
+  mensaje entero a los 180. `fetch` y Supabase no traen tope propio, así que sin
+  esto una sola conexión colgada nunca volvía y el bot se quedaba mudo con el
+  proceso vivo y el `/health` en verde.
 - **HTML rechazado**: si Telegram devuelve 400 por una etiqueta mal formada, el
   mensaje se reenvía en texto plano en vez de perderse.
 
@@ -675,3 +692,25 @@ pelean los updates y ninguno atiende de forma confiable. Sólo puede haber uno.
 
 Ya con el bot contestando, `/version` en el chat dice qué commit está en
 memoria: si no coincide con lo último que se subió, falta reiniciar el proceso.
+
+### Preguntarlo todo de un jalón
+
+Los dos `curl` de arriba miran el canal desde afuera. Para revisar también lo
+que el bot alcanzó a registrar, **en la máquina donde corre**:
+
+```bash
+npm run doctor
+```
+
+Sólo lee, así que se puede correr con el bot encendido. Hace las mismas
+preguntas a Telegram y añade las dos que el `/health` no puede contestar: qué
+conversaciones quedaron con el cliente hablando solo, y si el CRM y el modelo
+responden desde esa máquina. Con eso se sabe **dónde se corta**:
+
+- **Mensajes encolados en Telegram** → nunca llegaron: el proceso está caído o
+  el polling se congeló.
+- **Están en SQLite pero sin respuesta** → sí llegaron; el corte es el modelo,
+  el CRM o el envío. La bitácora lo dice con prefijo: `[agent]`, `[telegram]`,
+  `[tool]`, `[proceso]`.
+- **Todo responde y aun así nadie recibe nada** → el proceso que atiende no es
+  el que crees. Vuelve al 409 de arriba.

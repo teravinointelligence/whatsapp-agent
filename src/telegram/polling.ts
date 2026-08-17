@@ -1,5 +1,9 @@
 import { config } from "../config.js";
-import { getPollingOffset, setPollingOffset } from "../data/conversations.js";
+import {
+  getPollingOffset,
+  releaseUnconfirmedUpdates,
+  setPollingOffset,
+} from "../data/conversations.js";
 import { tellAdmins } from "../notify.js";
 import {
   deleteWebhook,
@@ -16,9 +20,9 @@ let running = false;
 /**
  * Tope de lo que puede tardar un mensaje antes de soltar el bucle.
  *
- * Los mensajes se atienden en serie, así que uno atorado —una llamada que
- * nunca vuelve— deja al bot mudo para todo el mundo, no sólo para quien
- * escribió. Vencido el plazo se sigue con los demás.
+ * Los mensajes de una misma persona se atienden en serie, así que uno atorado
+ * —una llamada que nunca vuelve— la deja sin respuesta a ella y retrasa el
+ * cierre de la tanda para todos. Vencido el plazo se sigue con los demás.
  */
 const MESSAGE_TIMEOUT_MS = 180_000;
 
@@ -99,6 +103,27 @@ export function collapseBatch(
   }));
 }
 
+/**
+ * Agrupa la tanda por persona, conservando el orden de cada conversación.
+ *
+ * Entre personas distintas no hay orden que respetar, y atenderlas en fila hace
+ * que un turno lento —una consulta pesada al CRM, un modelo tardado— deje sin
+ * respuesta a todos los que venían detrás.
+ */
+export function groupByUser<T extends { message: IncomingMessage }>(
+  batch: T[],
+): T[][] {
+  const groups = new Map<string, T[]>();
+
+  for (const item of batch) {
+    const group = groups.get(item.message.userId);
+    if (group) group.push(item);
+    else groups.set(item.message.userId, [item]);
+  }
+
+  return [...groups.values()];
+}
+
 export function stopPolling(): void {
   running = false;
 }
@@ -133,6 +158,13 @@ export async function startPolling(): Promise<void> {
   let backoff = 1000;
   let degraded = false;
 
+  // Lo que quedó a medio contestar cuando murió el proceso anterior vuelve a
+  // entrar, en vez de descartarse por duplicado sin haberse atendido nunca.
+  const soltados = releaseUnconfirmedUpdates();
+  if (soltados > 0) {
+    console.log(`Se reabrieron ${soltados} mensaje(s) que quedaron sin contestar.`);
+  }
+
   console.log("Escuchando por long polling. Ctrl+C para salir.");
 
   while (running) {
@@ -158,16 +190,22 @@ export async function startPolling(): Promise<void> {
         if (message) batch.push(message);
       }
 
-      for (const { message, reply } of collapseBatch(batch)) {
-        // En serie a propósito: el orden importa y un /start a media tanda
-        // tiene que aplicarse antes de lo que venga después.
-        await withTimeout(handleMessage(message, { reply }), MESSAGE_TIMEOUT_MS).catch(
-          (error: unknown) => {
-            console.error(`[telegram] ${message.userId} quedó sin atender:`, error);
-          },
-        );
-        status.lastMessageAt = new Date().toISOString();
-      }
+      // Cada conversación se atiende en serie —el orden importa y un /start a
+      // media tanda tiene que aplicarse antes de lo que venga después— pero las
+      // de personas distintas corren a la par.
+      await Promise.all(
+        groupByUser(collapseBatch(batch)).map(async (conversation) => {
+          for (const { message, reply } of conversation) {
+            await withTimeout(
+              handleMessage(message, { reply }),
+              MESSAGE_TIMEOUT_MS,
+            ).catch((error: unknown) => {
+              console.error(`[telegram] ${message.userId} quedó sin atender:`, error);
+            });
+            status.lastMessageAt = new Date().toISOString();
+          }
+        }),
+      );
 
       if (updates.length > 0) setPollingOffset(offset);
     } catch (error) {
