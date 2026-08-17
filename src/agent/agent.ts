@@ -11,10 +11,25 @@ import {
   getPhoneFor,
 } from "../data/conversations.js";
 
-const client = new Anthropic({ apiKey: config.anthropic.apiKey });
+const client = new Anthropic({
+  apiKey: config.anthropic.apiKey,
+  // El SDK espera 10 minutos por defecto. En un chat eso es lo mismo que no
+  // contestar, y como los mensajes se atienden en serie, una llamada colgada
+  // deja mudo al bot para todos.
+  timeout: 90_000,
+});
 
 /** Tope de vueltas del bucle para que un modelo atorado no gire sin fin. */
 const MAX_TURNS = 8;
+
+/**
+ * Tope de tiempo para resolver un turno completo.
+ *
+ * Ocho vueltas con herramientas pueden sumar minutos, y a esas alturas el
+ * cliente ya se fue. Vencido el plazo se corta y se contesta algo honesto:
+ * quedarse callado es la peor de las salidas.
+ */
+const DEADLINE_MS = 150_000;
 
 /** Contexto vacío para quien todavía no comparte su teléfono. */
 const NO_ACCOUNT: AccountContext = {
@@ -90,9 +105,17 @@ export async function respondTo(
   }
 
   const context: ToolContext = { account, staff, phone, userId };
+  const startedAt = Date.now();
   let reply = "";
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
+    if (turn > 0 && Date.now() - startedAt > DEADLINE_MS) {
+      console.warn(`[agent] ${userId}: se acabó el plazo en la vuelta ${turn}.`);
+      reply =
+        "Esto me está tomando más de lo normal. Déjame confirmarlo con el equipo y te contesto en un momento.";
+      break;
+    }
+
     // `output_config.effort` es GA en la API pero el SDK publicado todavía no lo
     // tipa, así que lo declaramos aparte en vez de esperar al tipado.
     const params: Anthropic.MessageCreateParamsNonStreaming & {

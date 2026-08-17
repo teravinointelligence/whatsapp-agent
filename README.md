@@ -521,7 +521,40 @@ TELEGRAM_WEBHOOK_SECRET=una-cadena-larga-que-tu-inventes
 El servidor registra el webhook solo al arrancar. Cada POST se valida contra el
 encabezado `X-Telegram-Bot-Api-Secret-Token`; los que no cuadran se rechazan con 401.
 
-SQLite necesita disco persistente — Railway o Fly.io funcionan sin ajustes.
+### Desplegar en Railway
+
+Corriéndolo a mano en una laptop, el bot deja de contestar en cuanto se cierra
+la terminal o la computadora se duerme —y nadie se entera hasta que un cliente
+escribe—. En Railway vive solo.
+
+1. **railway.com** → *New Project* → *Deploy from GitHub repo* → este
+   repositorio. `railway.json` ya trae el build, el arranque, el health check
+   contra `/health` y el reinicio automático.
+2. **Variables** (*Variables* → *Raw Editor*), las mismas del `.env` local:
+   `TELEGRAM_BOT_TOKEN`, `ANTHROPIC_API_KEY`, `SUPABASE_URL`,
+   `SUPABASE_SERVICE_ROLE_KEY`. `PORT` lo pone Railway solo.
+3. **Volumen** (*Settings* → *Volumes* → *New Volume*), montado en `/data`. Y
+   agrega la variable:
+
+   ```
+   DATABASE_PATH=/data/agent.db
+   ```
+
+   **Sin volumen, cada despliegue borra el SQLite** y con él los teléfonos ya
+   compartidos: el bot le vuelve a pedir el número a todos los clientes y
+   reprocesa la cola de Telegram. El negocio vive en el CRM, pero las
+   identidades del canal viven aquí.
+4. **Apaga el de la laptop.** Telegram entrega los updates a un solo consumidor:
+   dos procesos con el mismo token se pelean, sale `409 Conflict` en el log y
+   ninguno atiende de forma confiable. Por eso `numReplicas` es 1 y no debe
+   subir.
+
+En los *Deploy Logs* tienen que salir `Bot conectado: @…` y `Escuchando por long
+polling`. Después, `/version` en el chat dice qué commit quedó desplegado.
+
+> **Una sola instancia, siempre.** Para probar algo en la máquina, primero pausa
+> el despliegue (*Settings* → *Remove/Pause*) o usa un segundo bot de BotFather
+> con su propio token.
 
 ---
 
@@ -563,3 +596,82 @@ SQLite necesita disco persistente — Railway o Fly.io funcionan sin ajustes.
 - **Folio**: se calcula leyendo el último `COT-<año>-NNNN`. Con dos pedidos
   simultáneos hay una carrera teórica; al volumen actual no compensa un contador
   transaccional.
+- **Timeouts**: ninguna llamada espera para siempre. Telegram corta a los 30 s
+  (el long polling, a `TELEGRAM_POLL_TIMEOUT + 15`), cada llamada al modelo a los
+  90 s y el turno completo a los 150 s. Los mensajes se atienden en serie, así
+  que sin esto una sola llamada colgada dejaba mudo al bot para todos.
+- **HTML rechazado**: si Telegram devuelve 400 por una etiqueta mal formada, el
+  mensaje se reenvía en texto plano en vez de perderse.
+
+---
+
+## Enterarse de que se cayó
+
+Un proceso muerto no puede avisar de su propia muerte. Por eso el aviso está en
+tres capas, y la única que cubre la caída dura vive fuera de este código.
+
+**1. Cuando vuelve.** El bot deja una señal de vida cada minuto en SQLite. Al
+arrancar compara esa señal con el reloj: si el hueco pasa de cinco minutos,
+avisa por Telegram cuánto estuvo caído y desde cuándo. Llega tarde —hasta que
+alguien lo levanta— pero llega, y sirve para saber que no fue un tropiezo: si
+se repite, el proceso se está muriendo por algo. Un reinicio normal, un
+despliegue o un `git pull` no avisan: son más rápidos que el umbral.
+
+**2. Cuando está vivo pero no puede trabajar.** Si el polling lleva cinco
+fallos seguidos contra Telegram —unos treinta segundos con el backoff— la
+administración recibe el aviso con el error. Este sí sale en el momento, porque
+el proceso está corriendo. Es el que descubre las dos instancias peleándose los
+mensajes: el aviso lo dice con todas sus letras. Cuando se recupera, avisa
+también.
+
+**3. Cuando está muerto.** Aquí hace falta alguien de afuera que note que
+dejamos de latir. Configura `HEARTBEAT_URL` con un vigilante —
+[healthchecks.io](https://healthchecks.io) tiene plan gratuito y notifica por
+Telegram, correo o SMS:
+
+```
+HEARTBEAT_URL=https://hc-ping.com/tu-uuid
+```
+
+El bot le hace ping cada minuto. Se configura el check a **5 minutos de
+periodo** con **5 de gracia**: si el bot se muere, a los diez minutos como
+máximo llega el aviso, sin que nadie tenga que estar mirando. Vacío, esta capa
+queda apagada.
+
+> Las tres capas avisan a los `sales_reps` con `role = 'admin'` y `active`, y
+> sólo a quienes ya conversaron con el bot y compartieron su número: sin eso no
+> hay chat al que escribirles. La tercera es la excepción —avisa el vigilante,
+> por su propio canal— y por eso es la que funciona cuando nada más funciona.
+
+---
+
+## Cuando el bot no contesta
+
+De más común a menos:
+
+```bash
+curl -s localhost:3000/health          # ¿el proceso vive y sigue hablando con Telegram?
+```
+
+`lastPollAt` de hace menos de un minuto significa que el bucle está sano y el
+problema es otro. `failures` alto con `lastError` dice qué está rechazando
+Telegram. Si el `curl` no contesta nada, el proceso está caído: revisa el log
+con qué se murió y vuelve a levantarlo.
+
+```bash
+curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
+```
+
+- **`url` con algo** y tú corriendo en `polling`: los mensajes se los está
+  llevando otro servidor. Un `deleteWebhook` los devuelve a este proceso —el bot
+  ya lo hace solo al arrancar en modo polling, y lo deja anotado en el log.
+- **`pending_update_count` alto**: Telegram tiene los mensajes en cola y nadie
+  los está recogiendo. Es el síntoma clásico del proceso caído.
+- **`last_error_message`**: por qué el webhook no está entregando.
+
+**409 Conflict en el log** es el otro sospechoso de siempre: dos procesos con el
+mismo token —el de producción y un `npm run dev` que alguien dejó abierto— se
+pelean los updates y ninguno atiende de forma confiable. Sólo puede haber uno.
+
+Ya con el bot contestando, `/version` en el chat dice qué commit está en
+memoria: si no coincide con lo último que se subió, falta reiniciar el proceso.
