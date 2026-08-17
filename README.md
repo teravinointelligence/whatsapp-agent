@@ -602,6 +602,10 @@ polling`. Después, `/version` en el chat dice qué commit quedó desplegado.
   que sin esto una sola llamada colgada dejaba mudo al bot para todos.
 - **HTML rechazado**: si Telegram devuelve 400 por una etiqueta mal formada, el
   mensaje se reenvía en texto plano en vez de perderse.
+- **Arranque sin red**: el bot espera y reintenta —5 s, 10 s, 20 s, hasta un
+  minuto— en vez de morir. Una laptop que despierta antes que el wifi, o un
+  internet que parpadea, ya no dejan al bot apagado hasta que alguien se da
+  cuenta. Un token inválido sí corta de inmediato: eso no se arregla esperando.
 
 ---
 
@@ -657,6 +661,18 @@ curl -s localhost:3000/health          # ¿el proceso vive y sigue hablando con 
 problema es otro. `failures` alto con `lastError` dice qué está rechazando
 Telegram. Si el `curl` no contesta nada, el proceso está caído: revisa el log
 con qué se murió y vuelve a levantarlo.
+
+El campo `telegram` cuenta el arranque: `conectado` es lo normal y
+`sin conexión (intento N)` significa que el proceso está vivo esperando a que
+vuelva la red —no hay que reiniciarlo, arranca solo en cuanto haya salida a
+`api.telegram.org`—. Si eso se queda ahí, el problema es la red de esa máquina:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://api.telegram.org
+```
+
+Sin número, con el resto de internet funcionando, es un firewall o una VPN
+bloqueando Telegram en esa red.
 
 ```bash
 curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
