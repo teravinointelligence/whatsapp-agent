@@ -521,7 +521,40 @@ TELEGRAM_WEBHOOK_SECRET=una-cadena-larga-que-tu-inventes
 El servidor registra el webhook solo al arrancar. Cada POST se valida contra el
 encabezado `X-Telegram-Bot-Api-Secret-Token`; los que no cuadran se rechazan con 401.
 
-SQLite necesita disco persistente — Railway o Fly.io funcionan sin ajustes.
+### Desplegar en Railway
+
+Corriéndolo a mano en una laptop, el bot deja de contestar en cuanto se cierra
+la terminal o la computadora se duerme —y nadie se entera hasta que un cliente
+escribe—. En Railway vive solo.
+
+1. **railway.com** → *New Project* → *Deploy from GitHub repo* → este
+   repositorio. `railway.json` ya trae el build, el arranque, el health check
+   contra `/health` y el reinicio automático.
+2. **Variables** (*Variables* → *Raw Editor*), las mismas del `.env` local:
+   `TELEGRAM_BOT_TOKEN`, `ANTHROPIC_API_KEY`, `SUPABASE_URL`,
+   `SUPABASE_SERVICE_ROLE_KEY`. `PORT` lo pone Railway solo.
+3. **Volumen** (*Settings* → *Volumes* → *New Volume*), montado en `/data`. Y
+   agrega la variable:
+
+   ```
+   DATABASE_PATH=/data/agent.db
+   ```
+
+   **Sin volumen, cada despliegue borra el SQLite** y con él los teléfonos ya
+   compartidos: el bot le vuelve a pedir el número a todos los clientes y
+   reprocesa la cola de Telegram. El negocio vive en el CRM, pero las
+   identidades del canal viven aquí.
+4. **Apaga el de la laptop.** Telegram entrega los updates a un solo consumidor:
+   dos procesos con el mismo token se pelean, sale `409 Conflict` en el log y
+   ninguno atiende de forma confiable. Por eso `numReplicas` es 1 y no debe
+   subir.
+
+En los *Deploy Logs* tienen que salir `Bot conectado: @…` y `Escuchando por long
+polling`. Después, `/version` en el chat dice qué commit quedó desplegado.
+
+> **Una sola instancia, siempre.** Para probar algo en la máquina, primero pausa
+> el despliegue (*Settings* → *Remove/Pause*) o usa un segundo bot de BotFather
+> con su propio token.
 
 ---
 
