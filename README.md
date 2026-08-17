@@ -563,3 +563,42 @@ SQLite necesita disco persistente — Railway o Fly.io funcionan sin ajustes.
 - **Folio**: se calcula leyendo el último `COT-<año>-NNNN`. Con dos pedidos
   simultáneos hay una carrera teórica; al volumen actual no compensa un contador
   transaccional.
+- **Timeouts**: ninguna llamada espera para siempre. Telegram corta a los 30 s
+  (el long polling, a `TELEGRAM_POLL_TIMEOUT + 15`), cada llamada al modelo a los
+  90 s y el turno completo a los 150 s. Los mensajes se atienden en serie, así
+  que sin esto una sola llamada colgada dejaba mudo al bot para todos.
+- **HTML rechazado**: si Telegram devuelve 400 por una etiqueta mal formada, el
+  mensaje se reenvía en texto plano en vez de perderse.
+
+---
+
+## Cuando el bot no contesta
+
+De más común a menos:
+
+```bash
+curl -s localhost:3000/health          # ¿el proceso vive y sigue hablando con Telegram?
+```
+
+`lastPollAt` de hace menos de un minuto significa que el bucle está sano y el
+problema es otro. `failures` alto con `lastError` dice qué está rechazando
+Telegram. Si el `curl` no contesta nada, el proceso está caído: revisa el log
+con qué se murió y vuelve a levantarlo.
+
+```bash
+curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
+```
+
+- **`url` con algo** y tú corriendo en `polling`: los mensajes se los está
+  llevando otro servidor. Un `deleteWebhook` los devuelve a este proceso —el bot
+  ya lo hace solo al arrancar en modo polling, y lo deja anotado en el log.
+- **`pending_update_count` alto**: Telegram tiene los mensajes en cola y nadie
+  los está recogiendo. Es el síntoma clásico del proceso caído.
+- **`last_error_message`**: por qué el webhook no está entregando.
+
+**409 Conflict en el log** es el otro sospechoso de siempre: dos procesos con el
+mismo token —el de producción y un `npm run dev` que alguien dejó abierto— se
+pelean los updates y ninguno atiende de forma confiable. Sólo puede haber uno.
+
+Ya con el bot contestando, `/version` en el chat dice qué commit está en
+memoria: si no coincide con lo último que se subió, falta reiniciar el proceso.

@@ -92,13 +92,29 @@ export async function handleMessage(
   // Los comandos se aplican aunque el mensaje no se conteste: un /start a
   // media tanda tiene que borrar la conversación igual.
   const command = handleCommand(message);
-  const text = command ?? message.text ?? (message.sharedPhone ? SHARED_PHONE_NOTE : "");
+
+  if (command !== null) {
+    // La respuesta del comando se manda tal cual. Pasarla por el modelo sería
+    // darle de comer su propia respuesta como si fuera del cliente: el modelo
+    // la parafrasearía y /version dejaría de servir justo para lo que existe,
+    // que es saber qué código está corriendo sin preguntarle a nadie.
+    if (reply) {
+      await sendText(message.chatId, command, {
+        requestContact: getPhoneFor(message.userId) === null,
+      }).catch((error: unknown) => {
+        console.error("[telegram] no se pudo contestar el comando:", error);
+      });
+    }
+    return;
+  }
+
+  const text = message.text || (message.sharedPhone ? SHARED_PHONE_NOTE : "");
   if (!text) return;
 
   if (!reply) {
     // Sin llamar al modelo: el mensaje queda en el historial y el agente lo lee
     // cuando conteste el último de la tanda.
-    if (!command) appendMessage(message.userId, "user", text);
+    appendMessage(message.userId, "user", text);
     return;
   }
 
