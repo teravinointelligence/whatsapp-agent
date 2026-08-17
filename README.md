@@ -605,6 +605,46 @@ polling`. Después, `/version` en el chat dice qué commit quedó desplegado.
 
 ---
 
+## Enterarse de que se cayó
+
+Un proceso muerto no puede avisar de su propia muerte. Por eso el aviso está en
+tres capas, y la única que cubre la caída dura vive fuera de este código.
+
+**1. Cuando vuelve.** El bot deja una señal de vida cada minuto en SQLite. Al
+arrancar compara esa señal con el reloj: si el hueco pasa de cinco minutos,
+avisa por Telegram cuánto estuvo caído y desde cuándo. Llega tarde —hasta que
+alguien lo levanta— pero llega, y sirve para saber que no fue un tropiezo: si
+se repite, el proceso se está muriendo por algo. Un reinicio normal, un
+despliegue o un `git pull` no avisan: son más rápidos que el umbral.
+
+**2. Cuando está vivo pero no puede trabajar.** Si el polling lleva cinco
+fallos seguidos contra Telegram —unos treinta segundos con el backoff— la
+administración recibe el aviso con el error. Este sí sale en el momento, porque
+el proceso está corriendo. Es el que descubre las dos instancias peleándose los
+mensajes: el aviso lo dice con todas sus letras. Cuando se recupera, avisa
+también.
+
+**3. Cuando está muerto.** Aquí hace falta alguien de afuera que note que
+dejamos de latir. Configura `HEARTBEAT_URL` con un vigilante —
+[healthchecks.io](https://healthchecks.io) tiene plan gratuito y notifica por
+Telegram, correo o SMS:
+
+```
+HEARTBEAT_URL=https://hc-ping.com/tu-uuid
+```
+
+El bot le hace ping cada minuto. Se configura el check a **5 minutos de
+periodo** con **5 de gracia**: si el bot se muere, a los diez minutos como
+máximo llega el aviso, sin que nadie tenga que estar mirando. Vacío, esta capa
+queda apagada.
+
+> Las tres capas avisan a los `sales_reps` con `role = 'admin'` y `active`, y
+> sólo a quienes ya conversaron con el bot y compartieron su número: sin eso no
+> hay chat al que escribirles. La tercera es la excepción —avisa el vigilante,
+> por su propio canal— y por eso es la que funciona cuando nada más funciona.
+
+---
+
 ## Cuando el bot no contesta
 
 De más común a menos:

@@ -79,6 +79,13 @@ db.exec(`
     id     INTEGER PRIMARY KEY CHECK (id = 1),
     offset INTEGER NOT NULL
   );
+
+  -- Última señal de vida del proceso. Al arrancar se compara con el reloj: si
+  -- pasó demasiado tiempo desde la última, el bot estuvo caído y lo avisa.
+  CREATE TABLE IF NOT EXISTS heartbeat (
+    id      INTEGER PRIMARY KEY CHECK (id = 1),
+    seen_at TEXT NOT NULL
+  );
 `);
 
 // Los pedidos, el catálogo y las cuentas viven en el CRM (Supabase). Aquí sólo

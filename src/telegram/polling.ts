@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import { getPollingOffset, setPollingOffset } from "../data/conversations.js";
+import { tellAdmins } from "../notify.js";
 import {
   deleteWebhook,
   getUpdates,
@@ -20,6 +21,16 @@ let running = false;
  * escribió. Vencido el plazo se sigue con los demás.
  */
 const MESSAGE_TIMEOUT_MS = 180_000;
+
+/**
+ * Fallos seguidos antes de avisarle a la administración.
+ *
+ * Con el backoff son cerca de treinta segundos sin poder hablar con Telegram:
+ * ya no es un tropiezo de red. Este aviso sí puede salir —el proceso está
+ * vivo, sólo no lo dejan trabajar—, y es el que descubre el caso de las dos
+ * instancias peleándose los mensajes.
+ */
+const ALERT_AFTER_FAILURES = 5;
 
 interface PollingStatus {
   /** Última vez que Telegram contestó, aunque fuera sin updates. */
@@ -120,6 +131,7 @@ export async function startPolling(): Promise<void> {
   running = true;
   let offset = getPollingOffset();
   let backoff = 1000;
+  let degraded = false;
 
   console.log("Escuchando por long polling. Ctrl+C para salir.");
 
@@ -130,6 +142,14 @@ export async function startPolling(): Promise<void> {
       status.lastPollAt = new Date().toISOString();
       status.failures = 0;
       status.lastError = null;
+
+      if (degraded) {
+        degraded = false;
+        void tellAdmins(
+          "✅ <b>Ya me estoy entendiendo con Telegram otra vez</b>\n\n" +
+            "Los mensajes en cola se contestan ahora.",
+        );
+      }
 
       const batch = [];
       for (const update of updates) {
@@ -168,6 +188,23 @@ export async function startPolling(): Promise<void> {
         );
       } else {
         console.error("[telegram] fallo en el polling:", error);
+      }
+
+      // Sólo al cruzar el umbral: un aviso por intento fallido sería una
+      // ráfaga, y el bot ya está ocupado sin poder contestarle a nadie.
+      if (status.failures === ALERT_AFTER_FAILURES) {
+        degraded = true;
+        void tellAdmins(
+          [
+            "🔴 <b>No puedo hablar con Telegram</b>",
+            "",
+            `Llevo ${status.failures} intentos fallando: ${status.lastError}`,
+            "",
+            error instanceof TelegramError && error.status === 409
+              ? "Hay otro proceso corriendo con el mismo token —¿quedó un 'npm run dev' abierto?—. Mientras estén los dos, ninguno atiende bien."
+              : "Nadie está recibiendo respuesta mientras esto siga así.",
+          ].join("\n"),
+        );
       }
 
       await new Promise((resolve) => setTimeout(resolve, backoff));

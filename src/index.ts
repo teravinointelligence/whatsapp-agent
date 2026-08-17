@@ -4,6 +4,7 @@ import { getMe, setWebhook } from "./telegram/client.js";
 import { pollingStatus, startPolling } from "./telegram/polling.js";
 import { router as telegramRouter } from "./telegram/webhook.js";
 import { startScheduler } from "./scheduler.js";
+import { reportDowntime, startHeartbeat } from "./heartbeat.js";
 import { RUNNING_COMMIT } from "./version.js";
 
 /**
@@ -32,6 +33,14 @@ async function main(): Promise<void> {
   const me = await getMe();
   console.log(`Bot conectado: @${me.username ?? me.id}`);
   console.log(`Código en memoria: ${RUNNING_COMMIT}`);
+
+  // Antes de empezar a atender: si hay un hueco desde la última señal de vida,
+  // el bot estuvo caído y la administración se entera ahora, no cuando un
+  // cliente reclame. No bloquea el arranque si el aviso falla.
+  await reportDowntime().catch((error: unknown) => {
+    console.error("[latido] no se pudo avisar de la caída:", error);
+  });
+  startHeartbeat();
 
   startScheduler();
 
