@@ -33,6 +33,7 @@ import {
   listStatementEmails,
 } from "../crm/finance.js";
 import { listSampleRequests, SampleError } from "../crm/samples.js";
+import { AgendaError, getAgenda } from "../crm/agenda.js";
 import {
   assignProspect,
   listProspects,
@@ -325,6 +326,34 @@ export const tools: Anthropic.Tool[] = [
           description:
             "'borrador' (pendientes por revisar, es lo que da por defecto), " +
             "'aprobada', 'rechazada', 'entregada', 'cancelada' o 'todas'.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "consultar_agenda",
+    description:
+      "SÓLO para la administradora. La agenda del equipo de ventas: las citas " +
+      "con hora (visitas, degustaciones, llamadas), los pendientes con fecha y " +
+      "los seguimientos que cada quien se comprometió a hacer. Sin argumentos " +
+      "da la de hoy de todo el equipo. Úsala cuando pregunte qué trae alguien " +
+      "hoy, qué visitas hay esta semana o cómo va la agenda de una persona. " +
+      "Las horas ya vienen en la hora de Los Cabos: dilas tal cual, no las " +
+      "conviertas. Lo vencido viene marcado y es lo primero que hay que decir.",
+    input_schema: {
+      type: "object",
+      properties: {
+        vendedor: {
+          type: "string",
+          description:
+            "Nombre o parte del nombre del vendedor. Omítelo para todo el equipo.",
+        },
+        dias: {
+          type: "number",
+          description:
+            "Días hacia adelante además de hoy. 0 o vacío es sólo hoy, 1 " +
+            "incluye mañana, 7 la semana. Máximo 60.",
         },
       },
       required: [],
@@ -790,6 +819,39 @@ export async function runTool(
           };
         }
         return { content: JSON.stringify(muestras, null, 2), isError: false };
+      }
+
+      case "consultar_agenda": {
+        if (!staff?.isAdmin) {
+          return {
+            content: "Sólo la administración de Teravino puede ver la agenda del equipo.",
+            isError: true,
+          };
+        }
+
+        try {
+          const vendedor =
+            typeof args.vendedor === "string" ? args.vendedor.trim() : "";
+          const dias = typeof args.dias === "number" ? args.dias : 0;
+          const agenda = await getAgenda({ vendedor: vendedor || undefined, dias });
+
+          if (agenda.length === 0) {
+            return {
+              content:
+                dias > 0
+                  ? `Nadie del equipo tiene nada agendado en los próximos ${dias} día(s).`
+                  : "Nadie del equipo tiene nada agendado para hoy.",
+              isError: false,
+            };
+          }
+
+          return { content: JSON.stringify(agenda, null, 2), isError: false };
+        } catch (error) {
+          if (error instanceof AgendaError) {
+            return { content: error.message, isError: true };
+          }
+          throw error;
+        }
       }
 
       case "vincular_cuenta": {

@@ -54,6 +54,7 @@ buscar_productos  crear_pedido  consultar_pedidos
 | `buscar_cuenta` | **Sólo administración**: busca cuentas por nombre o número de cliente |
 | `estado_de_cuenta` | **Sólo administración**: saldo, vencido, facturas y último envío |
 | `consultar_muestras` | **Sólo administración**: solicitudes de muestra por revisar |
+| `consultar_agenda` | **Sólo administración**: la agenda del equipo — citas con hora, pendientes con fecha y seguimientos |
 | `consultar_prospectos` | **Sólo administración**: lista los prospectos captados |
 | `asignar_prospecto` | **Sólo administración**: se lo asigna a un vendedor |
 
@@ -255,6 +256,33 @@ Nadie levanta pedidos a nombre de clientes por este canal; eso sigue en el CRM.
 
 Dar de alta a alguien es capturar su número en `sales_reps.whatsapp`; retirarle el
 acceso es `active = false`. Sin tocar código.
+
+---
+
+## La agenda del equipo
+
+La administración puede preguntarle al bot qué trae el equipo: *"¿qué tiene
+Yamile hoy?"*, *"¿qué visitas hay esta semana?"*, *"¿cómo va la agenda?"*.
+
+La agenda no es una tabla del CRM, son tres cosas que el vendedor ve juntas en
+su día:
+
+| Qué | De dónde sale |
+|---|---|
+| **Citas con hora** — visitas, degustaciones, llamadas | `activities` con `status = 'agendada'` |
+| **Pendientes con fecha** — cobranza, cuentas inactivas, pedidos por revisar | `rep_tasks` con `status = 'pendiente'` |
+| **Seguimientos comprometidos** — "mandarle la cotización el jueves" | `activities.next_step` sin marcar como hecho |
+
+- **Las horas salen en la hora de Los Cabos.** En la base están en UTC y el día
+  se recorta según `TIMEZONE`, no según el reloj del servidor: un bot desplegado
+  en otro huso sigue contestando el día del vendedor.
+- **Lo vencido entra aunque su fecha ya haya pasado**, y viene marcado. Para eso
+  se pregunta por la agenda de alguien: lo atrasado es justo lo que importa.
+- **Diez renglones por bloque**, y lo que no cupo se reporta como número. Una
+  lista truncada en silencio se lee como si estuviera completa.
+- **Sin vendedor da todo el equipo**, saltándose a quien no trae nada. Con
+  vendedor contesta aunque venga vacía: "no trae nada" es una respuesta.
+- **Sólo lectura.** Agendar, mover o cancelar una visita se hace en el CRM.
 
 ---
 
@@ -602,6 +630,16 @@ polling`. Después, `/version` en el chat dice qué commit quedó desplegado.
   que sin esto una sola llamada colgada dejaba mudo al bot para todos.
 - **HTML rechazado**: si Telegram devuelve 400 por una etiqueta mal formada, el
   mensaje se reenvía en texto plano en vez de perderse.
+- **Red inestable**: los envíos se reintentan hasta tres veces cuando la
+  conexión se corta (`ECONNRESET`, timeout al abrir el socket). Un error de la
+  API —400, 403— no se reintenta: es una respuesta, y repetirla daría lo mismo.
+  El reintento acepta un riesgo a cambio: si la conexión se corta después de que
+  Telegram recibió el mensaje, el cliente puede verlo dos veces. Perder la
+  respuesta se nota más que verla repetida.
+- **Arranque sin red**: el bot espera y reintenta —5 s, 10 s, 20 s, hasta un
+  minuto— en vez de morir. Una laptop que despierta antes que el wifi, o un
+  internet que parpadea, ya no dejan al bot apagado hasta que alguien se da
+  cuenta. Un token inválido sí corta de inmediato: eso no se arregla esperando.
 
 ---
 
@@ -657,6 +695,18 @@ curl -s localhost:3000/health          # ¿el proceso vive y sigue hablando con 
 problema es otro. `failures` alto con `lastError` dice qué está rechazando
 Telegram. Si el `curl` no contesta nada, el proceso está caído: revisa el log
 con qué se murió y vuelve a levantarlo.
+
+El campo `telegram` cuenta el arranque: `conectado` es lo normal y
+`sin conexión (intento N)` significa que el proceso está vivo esperando a que
+vuelva la red —no hay que reiniciarlo, arranca solo en cuanto haya salida a
+`api.telegram.org`—. Si eso se queda ahí, el problema es la red de esa máquina:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://api.telegram.org
+```
+
+Sin número, con el resto de internet funcionando, es un firewall o una VPN
+bloqueando Telegram en esa red.
 
 ```bash
 curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
