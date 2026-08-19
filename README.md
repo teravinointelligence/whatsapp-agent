@@ -612,7 +612,17 @@ polling`. Después, `/version` en el chat dice qué commit quedó desplegado.
   que descartar cuando "no puede" algo que ya se programó es que el proceso siga
   con el código de antes del último `git pull`. El dato se lee al arrancar, así
   que un pull sin reiniciar sigue reportando la verdad de lo que está en memoria.
-- **Deduplicación**: por `update_id`, tanto en polling como en webhook.
+- **Deduplicación**: por `update_id`, tanto en polling como en webhook. El
+  update se aparta al empezar y se da por contestado hasta el final; si el
+  proceso se muere a media respuesta, al arrancar se sueltan los que quedaron a
+  medias para que la reentrega de Telegram sí se atienda. Antes esos mensajes
+  quedaban contados como procesados y esa persona no volvía a recibir nada.
+- **Audios, fotos y adjuntos**: no se pueden leer, pero se contestan. Quien
+  manda una nota de voz recibe un "todavía no puedo escuchar audios, ¿me lo
+  escribes?" en el acto; el pie de una foto sí se lee como texto, y el agente
+  recibe la nota de que no puede ver la imagen para que no conteste como si la
+  hubiera visto. Callarse era lo peor: desde el chat se ve igual que un bot
+  caído, y así llegaba el reporte de que "no contesta".
 - **Tandas encoladas**: si el bot estuvo caído, Telegram le entrega de golpe
   todo lo que se acumuló. De cada persona se contesta **sólo su último mensaje**;
   los anteriores se guardan en el historial y el agente responde a todo junto.
@@ -624,10 +634,16 @@ polling`. Después, `/version` en el chat dice qué commit quedó desplegado.
 - **Folio**: se calcula leyendo el último `COT-<año>-NNNN`. Con dos pedidos
   simultáneos hay una carrera teórica; al volumen actual no compensa un contador
   transaccional.
+- **Varias conversaciones a la vez**: dentro de una conversación los mensajes
+  se atienden en orden —un `/start` a media tanda tiene que aplicarse antes de
+  lo que venga después—, pero las conversaciones distintas corren en paralelo.
+  En fila única, un turno lento —el modelo pensando, una herramienta tardada—
+  dejaba esperando a todos los demás, y desde el otro chat eso se ve igual que
+  un bot que no contesta.
 - **Timeouts**: ninguna llamada espera para siempre. Telegram corta a los 30 s
   (el long polling, a `TELEGRAM_POLL_TIMEOUT + 15`), cada llamada al modelo a los
-  90 s y el turno completo a los 150 s. Los mensajes se atienden en serie, así
-  que sin esto una sola llamada colgada dejaba mudo al bot para todos.
+  90 s y el turno completo a los 150 s. Un mensaje atorado se suelta a los 180 s
+  para que la tanda pueda cerrarse.
 - **HTML rechazado**: si Telegram devuelve 400 por una etiqueta mal formada, el
   mensaje se reenvía en texto plano en vez de perderse.
 - **Red inestable**: los envíos se reintentan hasta tres veces cuando la
@@ -684,6 +700,17 @@ queda apagada.
 ---
 
 ## Cuando el bot no contesta
+
+Primero hay que separar dos cosas que se reportan igual:
+
+- **No le contesta a nadie**: el proceso está caído, sin red o peleándose los
+  updates con otra instancia. Eso es lo que diagnostica el resto de esta
+  sección.
+- **No le contestó a alguien en particular**: casi siempre es que esa persona
+  mandó algo que el bot no lee. Una nota de voz, una foto sin texto o un
+  archivo ya no se quedan callados —contestan pidiendo que lo escriban—, pero
+  un mensaje en un **grupo** sigue ignorándose a propósito: el bot sólo atiende
+  chats privados. Escribir "hola" en privado descarta esto en diez segundos.
 
 De más común a menos:
 

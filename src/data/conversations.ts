@@ -30,8 +30,16 @@ const selectDisplayName = db.prepare(
 );
 
 const markProcessed = db.prepare(
-  `INSERT OR IGNORE INTO processed_updates (update_id) VALUES (?)`,
+  `INSERT OR IGNORE INTO processed_updates (update_id, done) VALUES (?, 0)`,
 );
+
+const markDone = db.prepare(
+  `UPDATE processed_updates SET done = 1 WHERE update_id = ?`,
+);
+
+const dropClaim = db.prepare(`DELETE FROM processed_updates WHERE update_id = ?`);
+
+const dropUnfinished = db.prepare(`DELETE FROM processed_updates WHERE done = 0`);
 
 const selectPhone = db.prepare(`SELECT phone FROM identities WHERE user_id = ?`);
 
@@ -96,11 +104,44 @@ export function getHistory(userId: string): StoredMessage[] {
 }
 
 /**
- * Devuelve true la primera vez que se ve un update_id y false en los
- * reintentos.
+ * Aparta un update para atenderlo. Devuelve true la primera vez que se ve y
+ * false en los reintentos.
+ *
+ * Apartar no es lo mismo que haberlo contestado: eso lo marca `finishUpdate`.
+ * La diferencia importa porque un update apartado y nunca terminado —el
+ * proceso se murió a media respuesta— tiene que poder atenderse cuando
+ * Telegram lo reentregue, en vez de quedar descartado para siempre como
+ * "duplicado".
  */
 export function claimUpdate(updateId: number): boolean {
   return markProcessed.run(updateId).changes > 0;
+}
+
+/** El update ya se atendió: los reintentos de Telegram se pueden descartar. */
+export function finishUpdate(updateId: number): void {
+  markDone.run(updateId);
+}
+
+/**
+ * Suelta el update para que la reentrega lo vuelva a intentar.
+ *
+ * Se usa cuando atenderlo falló de un modo del que sí se puede volver: si no
+ * se soltara, el cliente se quedaría sin respuesta y su mensaje contaría como
+ * ya contestado.
+ */
+export function releaseUpdate(updateId: number): void {
+  dropClaim.run(updateId);
+}
+
+/**
+ * Al arrancar: lo que quedó apartado sin terminar es de la corrida anterior,
+ * que se murió a media respuesta. Se suelta para que la reentrega se atienda.
+ *
+ * Dentro de una misma corrida esto no se toca: ahí un update apartado sí es
+ * un mensaje que se está atendiendo en este momento.
+ */
+export function releaseUnfinishedUpdates(): number {
+  return dropUnfinished.run().changes;
 }
 
 /** Teléfono que este usuario de Telegram compartió, si ya lo hizo. */

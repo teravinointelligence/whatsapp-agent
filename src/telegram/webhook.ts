@@ -34,5 +34,11 @@ router.post("/telegram", (req: Request, res: Response) => {
   res.sendStatus(200);
 
   const message = parseUpdate(req.body as TelegramUpdate);
-  if (message) void handleMessage(message);
+  if (message) {
+    // Ya contestamos 200, así que el fallo sólo puede quedar en el log. El
+    // update se suelta solo al fallar: si Telegram lo reentrega, se atiende.
+    void handleMessage(message).catch((error: unknown) => {
+      console.error(`[telegram] ${message.userId} quedó sin atender:`, error);
+    });
+  }
 });
