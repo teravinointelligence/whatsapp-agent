@@ -3,6 +3,7 @@ import { config } from "./config.js";
 import { getMe, setWebhook, TelegramError } from "./telegram/client.js";
 import { pollingStatus, startPolling } from "./telegram/polling.js";
 import { router as telegramRouter } from "./telegram/webhook.js";
+import { releaseUnfinishedUpdates } from "./data/conversations.js";
 import { startScheduler } from "./scheduler.js";
 import { reportDowntime, startHeartbeat } from "./heartbeat.js";
 import { RUNNING_COMMIT } from "./version.js";
@@ -111,6 +112,18 @@ async function main(): Promise<void> {
         "En modo webhook necesitas TELEGRAM_WEBHOOK_URL y TELEGRAM_WEBHOOK_SECRET.",
       );
     }
+  }
+
+  // Lo que la corrida anterior dejó a medias —se murió mientras contestaba— se
+  // suelta antes de escuchar: si siguiera contado como procesado, la reentrega
+  // de Telegram se descartaría por duplicada y esa persona nunca vería
+  // respuesta.
+  const soltados = releaseUnfinishedUpdates();
+  if (soltados > 0) {
+    console.warn(
+      `[arranque] ${soltados} mensaje(s) quedaron sin contestar en la corrida anterior; ` +
+        "se vuelven a atender si Telegram los reentrega.",
+    );
   }
 
   startServer();

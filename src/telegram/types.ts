@@ -29,7 +29,22 @@ export interface TelegramMessage {
   chat: { id: number; type: string };
   date: number;
   text?: string;
+  /** Texto que acompaña a una foto, un video o un documento. */
+  caption?: string;
   contact?: TelegramContact;
+  /**
+   * Adjuntos que no sabemos leer. No tipamos su contenido porque no lo
+   * usamos: sólo nos importa saber qué mandó la persona para poder decírselo
+   * en vez de quedarnos callados.
+   */
+  photo?: unknown[];
+  voice?: unknown;
+  audio?: unknown;
+  video?: unknown;
+  video_note?: unknown;
+  document?: unknown;
+  sticker?: unknown;
+  location?: unknown;
 }
 
 export interface TelegramUpdate {
@@ -37,6 +52,22 @@ export interface TelegramUpdate {
   message?: TelegramMessage;
   edited_message?: TelegramMessage;
 }
+
+/**
+ * Qué mandó la persona cuando no fue texto.
+ *
+ * Se guarda para poder contestarle —"no puedo escuchar audios"— en lugar de
+ * dejarla hablando sola, que desde el chat se ve igual que un bot caído.
+ */
+export type MediaKind =
+  | "audio"
+  | "contacto"
+  | "foto"
+  | "video"
+  | "documento"
+  | "sticker"
+  | "ubicación"
+  | "adjunto";
 
 /** Mensaje ya normalizado que consume el agente. */
 export interface IncomingMessage {
@@ -52,4 +83,6 @@ export interface IncomingMessage {
   text: string;
   /** Teléfono que el usuario acaba de compartir, ya validado como suyo. */
   sharedPhone: string | null;
+  /** Adjunto que traía el mensaje, si no era sólo texto. */
+  media: MediaKind | null;
 }

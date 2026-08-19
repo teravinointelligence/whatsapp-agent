@@ -14,11 +14,11 @@ import type { IncomingMessage } from "./types.js";
 let running = false;
 
 /**
- * Tope de lo que puede tardar un mensaje antes de soltar el bucle.
+ * Tope de lo que puede tardar un mensaje antes de soltar la tanda.
  *
- * Los mensajes se atienden en serie, así que uno atorado —una llamada que
- * nunca vuelve— deja al bot mudo para todo el mundo, no sólo para quien
- * escribió. Vencido el plazo se sigue con los demás.
+ * Las conversaciones se atienden en paralelo, pero la tanda no se cierra hasta
+ * que todas terminan: uno atorado —una llamada que nunca vuelve— retrasaría el
+ * siguiente poll. Vencido el plazo se sigue sin él.
  */
 const MESSAGE_TIMEOUT_MS = 180_000;
 
@@ -99,6 +99,38 @@ export function collapseBatch(
   }));
 }
 
+/**
+ * Atiende la tanda: en serie por persona, en paralelo entre personas.
+ *
+ * El orden importa dentro de una conversación —un /start a media tanda tiene
+ * que aplicarse antes de lo que venga después—, pero entre conversaciones no
+ * importa nada. Atenderlas en fila única hacía que un turno lento —el modelo
+ * pensando, una herramienta tardada— dejara esperando a todos los demás, y
+ * desde el otro chat eso se ve exactamente igual que un bot que no contesta.
+ */
+async function attendBatch(batch: IncomingMessage[]): Promise<void> {
+  const byUser = new Map<string, Array<{ message: IncomingMessage; reply: boolean }>>();
+
+  for (const item of collapseBatch(batch)) {
+    const queue = byUser.get(item.message.userId) ?? [];
+    queue.push(item);
+    byUser.set(item.message.userId, queue);
+  }
+
+  await Promise.all(
+    [...byUser.values()].map(async (queue) => {
+      for (const { message, reply } of queue) {
+        await withTimeout(handleMessage(message, { reply }), MESSAGE_TIMEOUT_MS).catch(
+          (error: unknown) => {
+            console.error(`[telegram] ${message.userId} quedó sin atender:`, error);
+          },
+        );
+        status.lastMessageAt = new Date().toISOString();
+      }
+    }),
+  );
+}
+
 export function stopPolling(): void {
   running = false;
 }
@@ -158,16 +190,7 @@ export async function startPolling(): Promise<void> {
         if (message) batch.push(message);
       }
 
-      for (const { message, reply } of collapseBatch(batch)) {
-        // En serie a propósito: el orden importa y un /start a media tanda
-        // tiene que aplicarse antes de lo que venga después.
-        await withTimeout(handleMessage(message, { reply }), MESSAGE_TIMEOUT_MS).catch(
-          (error: unknown) => {
-            console.error(`[telegram] ${message.userId} quedó sin atender:`, error);
-          },
-        );
-        status.lastMessageAt = new Date().toISOString();
-      }
+      await attendBatch(batch);
 
       if (updates.length > 0) setPollingOffset(offset);
     } catch (error) {

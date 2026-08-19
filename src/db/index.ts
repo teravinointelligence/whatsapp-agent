@@ -39,8 +39,12 @@ db.exec(`
 
   -- Deduplica reintentos: el webhook de Telegram reenvía el update si no
   -- respondemos 200, y el long polling los repite si no confirmamos el offset.
+  -- 'done' distingue el update que ya se contestó del que se estaba
+  -- contestando cuando el proceso se murió: al arrancar, los segundos se
+  -- borran para que la reentrega sí se atienda.
   CREATE TABLE IF NOT EXISTS processed_updates (
     update_id    INTEGER PRIMARY KEY,
+    done         INTEGER NOT NULL DEFAULT 1,
     processed_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -87,6 +91,18 @@ db.exec(`
     seen_at TEXT NOT NULL
   );
 `);
+
+// Bases anteriores a la columna 'done' ya sólo tienen updates contestados, así
+// que entran con el valor por omisión y nadie pierde nada.
+const columns = db
+  .prepare(`PRAGMA table_info(processed_updates)`)
+  .all() as Array<{ name: string }>;
+
+if (!columns.some((column) => column.name === "done")) {
+  db.exec(
+    `ALTER TABLE processed_updates ADD COLUMN done INTEGER NOT NULL DEFAULT 1`,
+  );
+}
 
 // Los pedidos, el catálogo y las cuentas viven en el CRM (Supabase). Aquí sólo
 // queda el estado propio del canal: transcripción, identidades y deduplicación.
